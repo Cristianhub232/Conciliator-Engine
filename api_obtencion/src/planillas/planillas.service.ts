@@ -1,0 +1,663 @@
+import { Injectable } from '@nestjs/common';
+import { DatabaseService } from '../database/database.service';
+import * as oracledb from 'oracledb';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+
+export interface PlanillasFilter {
+  fecha: string;
+  banco: string;
+  estado_asignacion?: 'ASIGNADAS' | 'HUERFANAS' | 'TODAS';
+  expediente?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface PartidaAsignacion {
+  partida: string;
+  monto: number;
+}
+
+export interface ConciliarPayload {
+  usuario_operador: string;
+  expediente: number;
+  lote_id: number;
+  lote_seq: number;
+  planilla_id: string;
+  forma: string;
+  monto: number;
+  banco: string;
+  agencia: string;
+  fecha_recaudacion: string;
+  asignaciones: PartidaAsignacion[];
+}
+
+export interface RevertirPayload {
+  usuario_operador: string;
+  planilla_id: string;
+  banco: string;
+  fecha_recaudacion: string;
+}
+
+@Injectable()
+export class PlanillasService {
+  private validFormasCache: Set<string> = new Set();
+  private lastCacheUpdate = 0;
+
+  constructor(private readonly db: DatabaseService) {}
+
+  private async getValidFormas(connection: oracledb.Connection): Promise<Set<string>> {
+    const now = Date.now();
+    if (this.validFormasCache.size > 0 && now - this.lastCacheUpdate < 3600000) {
+      return this.validFormasCache;
+    }
+    try {
+      const res = await connection.execute(
+        `SELECT FORMA_CODIGO FROM ORG_LIQ.FORMA_IMPUESTO`,
+        {},
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+      this.validFormasCache = new Set((res.rows as any[]).map(r => String(r.FORMA_CODIGO)));
+      this.lastCacheUpdate = now;
+    } catch (err) {
+      console.warn('[PLANILLAS] Error cargando catalogo FORMA_IMPUESTO en cache:', err);
+    }
+    return this.validFormasCache;
+  }
+
+  private async registrarAuditoriaJson(registro: any) {
+    const auditFilePath = path.join(process.cwd(), 'auditoria.json');
+    try {
+      const auditEntry = {
+        ...registro,
+        fecha_hora: new Date().toISOString()
+      };
+      let registros: any[] = [];
+      try {
+        const data = await fs.readFile(auditFilePath, 'utf8');
+        if (data) registros = JSON.parse(data);
+      } catch {}
+      registros.push(auditEntry);
+      await fs.writeFile(auditFilePath, JSON.stringify(registros, null, 2), 'utf8');
+    } catch (err) {
+      console.error('[AUDITORIA] Error registrando auditoria:', err);
+    }
+  }
+
+  async getPendientes(filters: PlanillasFilter) {
+    const { fecha, banco, estado_asignacion, expediente, limit = 1000, offset = 0 } = filters;
+    
+    let baseQuery = '';
+    const binds: any = {};
+
+    let filtersSql = ` AND T.FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD') 
+                       AND T.INFN_CODIGO = :banco`;
+    binds.fecha = fecha;
+    binds.banco = banco;
+
+    if (expediente) {
+      filtersSql += ` AND L.EXPEDIENTE = :expediente`;
+      binds.expediente = expediente;
+    }
+
+    if (estado_asignacion === 'ASIGNADAS' || estado_asignacion === 'TODAS') {
+      baseQuery = `
+        SELECT DISTINCT
+            'ASIGNADA' AS ESTADO_ASIGNACION,
+            L.EXPEDIENTE,
+            L.LOTE_ID,
+            L.LOTE_SEQ,
+            T.PLANILLA AS NRO_PLANILLA_FALTANTE,
+            T.FORMA_CODIGO AS FORMA,
+            T.MONTO_EFECTIVO,
+            T.INFN_CODIGO AS BANCO,
+            T.AGENCIA_CODIGO AS AGENCIA,
+            T.FECHA_RECAUDACION,
+            T.IDENT_CNTB AS RIF
+        FROM ORG_LIQ.TXT_SENIAT T
+        INNER JOIN ORG_LIQ.LOTE L 
+            ON T.FECHA_RECAUDACION = L.FECHA_RECAUDACION 
+           AND T.INFN_CODIGO = L.INFN_CODIGO 
+           AND T.AGENCIA_CODIGO = L.AGENCIA_CODIGO
+           AND L.ANHO = EXTRACT(YEAR FROM T.FECHA_RECAUDACION)
+        INNER JOIN WFE_WORKFLOW.WF_WORK_ITEM W 
+            ON L.EXPEDIENTE = W.WFEX_EXP_ID
+            AND W.WI_ESTADO = 'ABIERTA'
+            AND W.WFUS_USERS_ID IS NOT NULL
+        WHERE L.ESTADO = 'P'
+          AND T.ESTADO IS NULL 
+          AND NOT EXISTS (
+            SELECT 1 FROM ORG_LIQ.PLANILLA P 
+            WHERE P.PLANILLA_ID = T.PLANILLA 
+              AND P.LOTE_SEQ = L.LOTE_SEQ 
+              AND P.ANHO = L.ANHO
+        )
+        ${filtersSql}
+      `;
+    } else {
+      baseQuery = `
+        SELECT DISTINCT
+            'SIN_ASIGNAR' AS ESTADO_ASIGNACION,
+            L.EXPEDIENTE,
+            L.LOTE_ID,
+            L.LOTE_SEQ,
+            T.PLANILLA AS NRO_PLANILLA_FALTANTE,
+            T.FORMA_CODIGO AS FORMA,
+            T.MONTO_EFECTIVO,
+            T.INFN_CODIGO AS BANCO,
+            T.AGENCIA_CODIGO AS AGENCIA,
+            T.FECHA_RECAUDACION,
+            T.IDENT_CNTB AS RIF
+        FROM ORG_LIQ.TXT_SENIAT T
+        INNER JOIN ORG_LIQ.LOTE L 
+            ON T.FECHA_RECAUDACION = L.FECHA_RECAUDACION 
+           AND T.INFN_CODIGO = L.INFN_CODIGO 
+           AND T.AGENCIA_CODIGO = L.AGENCIA_CODIGO
+           AND L.ANHO = EXTRACT(YEAR FROM T.FECHA_RECAUDACION)
+        WHERE L.ESTADO = 'P'
+          AND T.ESTADO IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM ORG_LIQ.PLANILLA P 
+            WHERE P.PLANILLA_ID = T.PLANILLA 
+              AND P.LOTE_SEQ = L.LOTE_SEQ 
+              AND P.ANHO = L.ANHO
+        )
+        AND (
+            NOT EXISTS (
+                SELECT 1 FROM WFE_WORKFLOW.WF_WORK_ITEM W 
+                WHERE L.EXPEDIENTE = W.WFEX_EXP_ID 
+                  AND W.WI_ESTADO = 'ABIERTA'
+            )
+            OR EXISTS (
+                SELECT 1 FROM WFE_WORKFLOW.WF_WORK_ITEM W 
+                WHERE L.EXPEDIENTE = W.WFEX_EXP_ID 
+                  AND W.WI_ESTADO = 'ABIERTA' 
+                  AND W.WFUS_USERS_ID IS NULL
+            )
+        )
+        ${filtersSql}
+      `;
+    }
+
+    const paginatedQuery = `
+      ${baseQuery}
+      OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY
+    `;
+    binds.offset = Number(offset);
+    binds.limit = Number(limit);
+
+    try {
+      return await this.db.executeQuery(paginatedQuery, binds);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  private async executeWithTimeout(
+    connection: oracledb.Connection,
+    sql: string,
+    binds: any = {},
+    options: oracledb.ExecuteOptions = {},
+    timeoutMs = 8000
+  ): Promise<oracledb.Result<any>> {
+    let timeoutHandle: NodeJS.Timeout;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(() => {
+        reject(new Error(`Timeout de consulta excedido (${timeoutMs}ms) en Oracle`));
+      }, timeoutMs);
+    });
+
+    try {
+      const result = await Promise.race([
+        connection.execute(sql, binds, options),
+        timeoutPromise
+      ]);
+      return result as oracledb.Result<any>;
+    } finally {
+      clearTimeout(timeoutHandle!);
+    }
+  }
+
+  async conciliarPlanilla(payload: ConciliarPayload): Promise<any> {
+    const t0 = Date.now();
+    let attempt = 0;
+    const maxAttempts = 3;
+
+    while (attempt < maxAttempts) {
+      attempt++;
+      let connection: oracledb.Connection | null = null;
+
+      const execOptions: oracledb.ExecuteOptions = {
+        autoCommit: false,
+        outFormat: oracledb.OUT_FORMAT_OBJECT
+      };
+
+      try {
+        connection = await this.db.getConnection();
+
+        const validFormas = await this.getValidFormas(connection);
+        if (validFormas.size > 0 && !validFormas.has(String(payload.forma))) {
+          throw new Error(`La forma ${payload.forma} no existe en el catálogo FORMA_IMPUESTO de SIGECOF. Planilla omitida.`);
+        }
+
+        const fechaLimpia = payload.fecha_recaudacion.split('T')[0];
+        const anho = parseInt(fechaLimpia.split('-')[0], 10);
+        const periodo = parseInt(fechaLimpia.replace(/-/g, ''), 10);
+
+        // Construir bloques dinámicos para DET_PLANILLA en el mismo PL/SQL atómico
+        let detSql = '';
+        const plsqlBinds: any = {
+          planilla: String(payload.planilla_id),
+          fecha: fechaLimpia,
+          banco: String(payload.banco),
+          anho,
+          loteId: payload.lote_id,
+          loteSeq: payload.lote_seq,
+          forma: String(payload.forma),
+          montoTotal: payload.monto,
+          expediente: payload.expediente,
+          periodo,
+          outSeq: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER }
+        };
+
+        let detpSeq = 1;
+        for (const item of payload.asignaciones) {
+          const partidaKey = `partida_${detpSeq}`;
+          const montoKey = `monto_${detpSeq}`;
+          plsqlBinds[partidaKey] = String(item.partida);
+          plsqlBinds[montoKey] = Number(item.monto);
+
+          detSql += `
+            INSERT INTO ORG_LIQ.DET_PLANILLA 
+             (ANHO, LOTE_ID, PLANILLA_ID, FORMA_CODIGO, PLUC_ID, DET_PLN_ID, 
+              MONTO, MONTO_EFECTIVO, EXPEDIENTE, LOTE_SEQ, PLAN_SEQ, DETP_SEQ) 
+            VALUES 
+             (:anho, :loteId, :planilla, :forma, :${partidaKey}, ${detpSeq}, 
+              :${montoKey}, :${montoKey}, :expediente, :loteSeq, v_seq, ${detpSeq});
+          `;
+          detpSeq++;
+        }
+
+        const plsql = `
+          DECLARE
+            v_ident VARCHAR2(30);
+            v_seq NUMBER(6);
+          BEGIN
+            -- 1. Obtener RIF de TXT_SENIAT
+            BEGIN
+              SELECT NVL(IDENT_CNTB, 'V000000000') INTO v_ident
+              FROM ORG_LIQ.TXT_SENIAT
+              WHERE PLANILLA = :planilla 
+                AND FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD') 
+                AND INFN_CODIGO = :banco;
+            EXCEPTION
+              WHEN NO_DATA_FOUND THEN
+                RAISE_APPLICATION_ERROR(-20001, 'No se encontro el registro en TXT_SENIAT para la planilla ' || :planilla);
+            END;
+
+            -- 2. Calcular siguiente correlativo PLAN_SEQ
+            SELECT NVL(MAX(PLAN_SEQ), 0) + 1 INTO v_seq
+            FROM ORG_LIQ.PLANILLA
+            WHERE ANHO = :anho AND LOTE_SEQ = :loteSeq;
+
+            -- 3. Insertar Cabecera en PLANILLA
+            INSERT INTO ORG_LIQ.PLANILLA 
+             (ANHO, LOTE_ID, PLANILLA_ID, FORMA_CODIGO, ORGA_ID, FECHA_REGISTRO, IDENT_CNTB, 
+              MONTO, MONTO_EFECTIVO, PLANILLA_MANUAL, FECHA_RECAUDACION, INFN_CODIGO, 
+              EXPEDIENTE, LOTE_SEQ, PLAN_SEQ, PERIODO) 
+            VALUES 
+             (:anho, :loteId, :planilla, :forma, '00', SYSDATE, v_ident, 
+              :montoTotal, :montoTotal, 0, TO_DATE(:fecha, 'YYYY-MM-DD'), :banco, 
+              :expediente, :loteSeq, v_seq, :periodo);
+
+            -- 4. Insertar Renglones Presupuestarios en DET_PLANILLA
+            ${detSql}
+
+            -- 5. Actualizar TXT_SENIAT a estado conciliado (ESTADO = 1)
+            UPDATE ORG_LIQ.TXT_SENIAT 
+            SET ESTADO = 1, ANHO = :anho, LOTE_SEQ = :loteSeq, PLAN_SEQ = v_seq 
+            WHERE PLANILLA = :planilla 
+              AND FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD')
+              AND INFN_CODIGO = :banco;
+
+            -- 6. Confirmar transaccion
+            COMMIT;
+
+            :outSeq := v_seq;
+          END;
+        `;
+
+        const resultPlsql = await this.executeWithTimeout(
+          connection,
+          plsql,
+          plsqlBinds,
+          execOptions,
+          12000
+        );
+
+        const planSeq = resultPlsql.outBinds?.outSeq || 1;
+        
+        this.registrarAuditoriaJson({
+          planilla_id: payload.planilla_id,
+          accion: 'CONCILIACION',
+          usuario: payload.usuario_operador,
+          expediente: payload.expediente || null,
+          lote_id: payload.lote_id || null,
+          monto_total: payload.monto,
+          detalles: `Forma: ${payload.forma} - Partidas: ${payload.asignaciones.length}`
+        }).catch(() => {});
+        
+        return {
+          status: 200,
+          message: 'Conciliación ejecutada exitosamente',
+          data: {
+            planilla: payload.planilla_id,
+            plan_seq_asignado: planSeq,
+            partidas_asignadas: payload.asignaciones.length
+          }
+        };
+      } catch (error: any) {
+        if (connection) {
+          try {
+            await connection.rollback();
+          } catch (rollbackErr) {
+            // Ignorar
+          }
+          try {
+            await connection.close();
+          } catch (closeErr) {
+            // Ignorar
+          }
+          connection = null;
+        }
+
+        const isNetworkErr = error.message && (
+          error.message.includes('NJS-500') ||
+          error.message.includes('NJS-501') ||
+          error.message.includes('ECONNRESET') ||
+          error.message.includes('ETIMEDOUT') ||
+          error.message.includes('closed or broken')
+        );
+
+        if (isNetworkErr && attempt < maxAttempts) {
+          await new Promise(r => setTimeout(r, 150 * attempt));
+          continue;
+        }
+
+        throw new Error(`Error en conciliación atómica: ${error.message}`);
+      } finally {
+        if (connection) {
+          try {
+            await connection.close();
+          } catch (closeErr) {
+            // Ignorar
+          }
+        }
+      }
+    }
+  }
+
+  // Conciliación Masiva de Lote en una sola conexión reutilizada
+  async conciliarLote(payloads: ConciliarPayload[]): Promise<any> {
+    const t0 = Date.now();
+    if (!payloads || payloads.length === 0) {
+      return { total: 0, exitosas: 0, fallidas: 0, resultados: [] };
+    }
+
+    const connection = await this.db.getConnection();
+    const execOptions: oracledb.ExecuteOptions = {
+      autoCommit: false,
+      outFormat: oracledb.OUT_FORMAT_OBJECT
+    };
+
+    const resultados: any[] = [];
+    let exitosas = 0;
+    let fallidas = 0;
+
+    try {
+      const validFormas = await this.getValidFormas(connection);
+
+      for (const payload of payloads) {
+        const tPlanilla = Date.now();
+        try {
+          if (validFormas.size > 0 && !validFormas.has(String(payload.forma))) {
+            throw new Error(`Forma ${payload.forma} no registrada en SIGECOF`);
+          }
+
+          const fechaLimpia = payload.fecha_recaudacion.split('T')[0];
+          const anho = parseInt(fechaLimpia.split('-')[0], 10);
+          const periodo = parseInt(fechaLimpia.replace(/-/g, ''), 10);
+
+          const resultIdent = await this.executeWithTimeout(
+            connection,
+            `SELECT IDENT_CNTB, AGENCIA_CODIGO 
+             FROM ORG_LIQ.TXT_SENIAT 
+             WHERE PLANILLA = :planilla 
+               AND FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD')
+               AND INFN_CODIGO = :banco`,
+            {
+              planilla: String(payload.planilla_id),
+              fecha: fechaLimpia,
+              banco: String(payload.banco)
+            },
+            execOptions,
+            5000
+          );
+
+          if (!resultIdent.rows || (resultIdent.rows as any[]).length === 0) {
+            throw new Error(`No existe en TXT_SENIAT`);
+          }
+          const rowIdent: any = (resultIdent.rows as any[])[0];
+          const identCntb = rowIdent.IDENT_CNTB || rowIdent[0] || 'V000000000';
+
+          const resultSeq = await this.executeWithTimeout(
+            connection,
+            `SELECT NVL(MAX(PLAN_SEQ), 0) + 1 AS NEXT_SEQ 
+             FROM ORG_LIQ.PLANILLA 
+             WHERE ANHO = :anho AND LOTE_SEQ = :loteSeq`,
+            { anho, loteSeq: payload.lote_seq },
+            execOptions,
+            5000
+          );
+          const planSeq = (resultSeq.rows as any[])[0]?.NEXT_SEQ || 1;
+
+          await this.executeWithTimeout(
+            connection,
+            `INSERT INTO ORG_LIQ.PLANILLA 
+             (ANHO, LOTE_ID, PLANILLA_ID, FORMA_CODIGO, ORGA_ID, FECHA_REGISTRO, IDENT_CNTB, 
+              MONTO, MONTO_EFECTIVO, PLANILLA_MANUAL, FECHA_RECAUDACION, INFN_CODIGO, 
+              EXPEDIENTE, LOTE_SEQ, PLAN_SEQ, PERIODO) 
+             VALUES 
+             (:anho, :loteId, :planilla, :forma, '00', SYSDATE, :ident, 
+              :monto, :monto, 0, TO_DATE(:fecha, 'YYYY-MM-DD'), :banco, 
+              :expediente, :loteSeq, :planSeq, :periodo)`,
+            {
+              anho,
+              loteId: payload.lote_id,
+              planilla: String(payload.planilla_id),
+              forma: String(payload.forma),
+              ident: identCntb,
+              monto: payload.monto,
+              fecha: fechaLimpia,
+              banco: String(payload.banco),
+              expediente: payload.expediente,
+              loteSeq: payload.lote_seq,
+              planSeq,
+              periodo
+            },
+            execOptions,
+            8000
+          );
+
+          let detpSeq = 1;
+          for (const item of payload.asignaciones) {
+            await this.executeWithTimeout(
+              connection,
+              `INSERT INTO ORG_LIQ.DET_PLANILLA 
+               (ANHO, LOTE_ID, PLANILLA_ID, FORMA_CODIGO, PLUC_ID, DET_PLN_ID, 
+                MONTO, MONTO_EFECTIVO, EXPEDIENTE, LOTE_SEQ, PLAN_SEQ, DETP_SEQ) 
+               VALUES 
+               (:anho, :loteId, :planilla, :forma, :partida, :detPlnId, 
+                :monto, :monto, :expediente, :loteSeq, :planSeq, :detpSeq)`,
+              {
+                anho,
+                loteId: payload.lote_id,
+                planilla: String(payload.planilla_id),
+                forma: String(payload.forma),
+                partida: String(item.partida),
+                detPlnId: detpSeq,
+                monto: item.monto,
+                expediente: payload.expediente,
+                loteSeq: payload.lote_seq,
+                planSeq,
+                detpSeq
+              },
+              execOptions,
+              5000
+            );
+            detpSeq++;
+          }
+
+          await this.executeWithTimeout(
+            connection,
+            `UPDATE ORG_LIQ.TXT_SENIAT 
+             SET ESTADO = 1, ANHO = :anho, LOTE_SEQ = :loteSeq, PLAN_SEQ = :planSeq 
+             WHERE PLANILLA = :planilla 
+               AND FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD')
+               AND INFN_CODIGO = :banco`,
+            {
+              anho,
+              loteSeq: payload.lote_seq,
+              planSeq,
+              planilla: String(payload.planilla_id),
+              fecha: fechaLimpia,
+              banco: String(payload.banco)
+            },
+            execOptions,
+            5000
+          );
+
+          await connection.commit();
+          exitosas++;
+          resultados.push({
+            planilla_id: payload.planilla_id,
+            status: 'success',
+            plan_seq: planSeq,
+            tiempo_ms: Date.now() - tPlanilla
+          });
+        } catch (planErr: any) {
+          await connection.rollback();
+          fallidas++;
+          resultados.push({
+            planilla_id: payload.planilla_id,
+            status: 'error',
+            error: planErr.message,
+            tiempo_ms: Date.now() - tPlanilla
+          });
+        }
+      }
+
+      return {
+        total: payloads.length,
+        exitosas,
+        fallidas,
+        tiempo_total_ms: Date.now() - t0,
+        resultados
+      };
+    } finally {
+      if (connection) {
+        try {
+          await connection.close();
+        } catch {}
+      }
+    }
+  }
+
+  async revertirPlanilla(payload: RevertirPayload) {
+    let connection;
+    try {
+      connection = await this.db.getConnection();
+      
+      const execOptions = { autoCommit: false };
+
+      // 0. Obtener data previa para auditoría
+      const currentData = await connection.execute(
+        `SELECT EXPEDIENTE, LOTE_ID, MONTO FROM ORG_LIQ.PLANILLA WHERE PLANILLA_ID = :planilla`,
+        { planilla: payload.planilla_id },
+        execOptions
+      );
+      const planillaData = currentData.rows[0] || {};
+
+      // 1. Insert Audit Trail (JSON Local)
+      await this.registrarAuditoriaJson({
+        planilla_id: payload.planilla_id,
+        accion: 'REVERSION',
+        usuario: payload.usuario_operador,
+        expediente: planillaData.EXPEDIENTE || null,
+        lote_id: planillaData.LOTE_ID || null,
+        monto_total: planillaData.MONTO || null,
+        detalles: 'Reversión desde Orquestador UI'
+      });
+
+      // 2. Borrar en DET_PLANILLA
+      await connection.execute(
+        `DELETE FROM ORG_LIQ.DET_PLANILLA WHERE PLANILLA_ID = :planilla`,
+        { planilla: payload.planilla_id },
+        execOptions
+      );
+
+      // 3. Borrar en PLANILLA (Cabecera)
+      await connection.execute(
+        `DELETE FROM ORG_LIQ.PLANILLA WHERE PLANILLA_ID = :planilla`,
+        { planilla: payload.planilla_id },
+        execOptions
+      );
+
+      // 4. Desvincular de TXT_SENIAT
+      const updateResult = await connection.execute(
+        `UPDATE ORG_LIQ.TXT_SENIAT 
+         SET ESTADO = NULL, 
+             ANHO = NULL, 
+             LOTE_SEQ = NULL, 
+             PLAN_SEQ = NULL 
+         WHERE PLANILLA = :planilla 
+           AND INFN_CODIGO = :banco 
+           AND FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD')`,
+        {
+          planilla: payload.planilla_id,
+          banco: payload.banco,
+          fecha: payload.fecha_recaudacion
+        },
+        execOptions
+      );
+
+      if (updateResult.rowsAffected === 0) {
+        throw new Error('No se encontró el registro original en TXT_SENIAT para revertir. Revise los parámetros de Banco y Fecha.');
+      }
+
+      // 4. Confirmar Transacción
+      await connection.commit();
+
+      return {
+        status: 200,
+        message: 'Planilla revertida y desvinculada exitosamente',
+        data: {
+          planilla: payload.planilla_id
+        }
+      };
+    } catch (error) {
+      if (connection) {
+        await connection.rollback();
+      }
+      throw error;
+    } finally {
+      if (connection) {
+        try {
+          await connection.close();
+        } catch (closeError) {
+          console.error('Error cerrando la conexión al revertir planilla:', closeError);
+        }
+      }
+    }
+  }
+}

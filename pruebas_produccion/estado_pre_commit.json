@@ -1,0 +1,20 @@
+{
+  "TXT_SENIAT": {
+    "error": "HTTP Error 401: Unauthorized"
+  },
+  "PLANILLA": {
+    "error": "HTTP Error 401: Unauthorized"
+  },
+  "LOTE": {
+    "error": "HTTP Error 401: Unauthorized"
+  },
+  "WORK_ITEM": {
+    "error": "HTTP Error 401: Unauthorized"
+  },
+  "MOVIMIENTO_LOTE": {
+    "error": "HTTP Error 401: Unauthorized"
+  },
+  "ESTADOS_PLANILLA": {
+    "error": "HTTP Error 401: Unauthorized"
+  }
+}

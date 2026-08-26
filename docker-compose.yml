@@ -1,0 +1,48 @@
+services:
+  # ---------------------------------------------------------
+  # BACKEND: API de Conciliación, Auditoría y Conectores DB
+  # ---------------------------------------------------------
+  api_obtencion:
+    build:
+      context: ./api_obtencion
+      dockerfile: Dockerfile
+    container_name: ont_api_obtencion
+    restart: unless-stopped
+    ports:
+      - "3010:3010"
+    env_file:
+      - ./api_obtencion/.env
+    environment:
+      - PORT=3010
+      - NODE_ENV=production
+    volumes:
+      - ./api_obtencion/auditoria.json:/app/auditoria.json
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - ont_net
+
+  # ---------------------------------------------------------
+  # FRONTEND: Interfaz de Operador y Orquestador Web
+  # ---------------------------------------------------------
+  orquestador_ui:
+    build:
+      context: ./orquestador-ui
+      dockerfile: Dockerfile
+    container_name: ont_orquestador_ui
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      - NODE_ENV=production
+      - PORT=3002
+      - API_BACKEND_URL=http://api_obtencion:3010
+      - CATALOGO_API_URL=http://10.46.0.189:3000
+    depends_on:
+      - api_obtencion
+    networks:
+      - ont_net
+
+networks:
+  ont_net:
+    driver: bridge

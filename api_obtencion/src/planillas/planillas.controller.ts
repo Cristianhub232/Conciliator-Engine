@@ -1,0 +1,142 @@
+import { Controller, Get, Post, Body, Query, HttpException, HttpStatus } from '@nestjs/common';
+import { PlanillasService } from './planillas.service';
+import type { PlanillasFilter, ConciliarPayload, RevertirPayload } from './planillas.service';
+
+@Controller('api/planillas')
+export class PlanillasController {
+  constructor(private readonly planillasService: PlanillasService) {}
+
+  @Get('pendientes')
+  async getPendientes(
+    @Query('fecha') fecha: string,
+    @Query('banco') banco: string,
+    @Query('estado_asignacion') estado_asignacion?: 'ASIGNADAS' | 'HUERFANAS',
+    @Query('expediente') expediente?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    if (!fecha || !banco) {
+      throw new HttpException(
+        {
+          status: HttpStatus.BAD_REQUEST,
+          error: 'Bad Request',
+          message: 'Los parámetros fecha (YYYY-MM-DD) y banco son obligatorios.',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    try {
+      const filters: PlanillasFilter = {
+        fecha,
+        banco,
+        estado_asignacion,
+        expediente,
+        limit: limit ? parseInt(limit, 10) : 1000,
+        offset: offset ? parseInt(offset, 10) : 0,
+      };
+
+      const results = await this.planillasService.getPendientes(filters);
+      return {
+        data: results,
+        pagination: {
+          limit: filters.limit,
+          offset: filters.offset,
+          count: results.length
+        }
+      };
+    } catch (error) {
+      throw new HttpException(
+        { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error al consultar las planillas pendientes', message: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Post('conciliar')
+  async conciliarPlanilla(@Body() payload: ConciliarPayload) {
+    // Validaciones básicas de que los datos vengan en el body
+    const requiredFields = ['usuario_operador', 'expediente', 'lote_id', 'lote_seq', 'planilla_id', 'forma', 'monto', 'banco', 'agencia', 'fecha_recaudacion', 'asignaciones'];
+    for (const field of requiredFields) {
+      if (payload[field] === undefined || payload[field] === null) {
+        throw new HttpException(
+          { status: HttpStatus.BAD_REQUEST, error: 'Bad Request', message: `El campo ${field} es obligatorio.` },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+    }
+
+    // Regla de Negocio: Validar Formas Excluidas
+    const formasExcluidas = ['00000', '99999']; // TODO: Reemplazar con las formas excluidas reales
+    if (formasExcluidas.includes(payload.forma)) {
+      throw new HttpException(
+        { 
+          status: HttpStatus.UNPROCESSABLE_ENTITY, 
+          error: 'Forma Excluida', 
+          message: `La forma ${payload.forma} está excluida del proceso de conciliación automática.` 
+        },
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+    }
+
+    if (!Array.isArray(payload.asignaciones) || payload.asignaciones.length === 0) {
+      throw new HttpException(
+        { status: HttpStatus.BAD_REQUEST, error: 'Bad Request', message: `El campo asignaciones debe ser un arreglo con al menos un elemento.` },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    try {
+      const result = await this.planillasService.conciliarPlanilla(payload);
+      return result;
+    } catch (error) {
+      throw new HttpException(
+        { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error durante la conciliación atómica', message: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Post('conciliar-lote')
+  async conciliarLote(@Body() body: { planillas: ConciliarPayload[] }) {
+    if (!body || !Array.isArray(body.planillas) || body.planillas.length === 0) {
+      throw new HttpException(
+        { status: HttpStatus.BAD_REQUEST, error: 'Bad Request', message: 'El campo planillas debe ser un arreglo no vacío.' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    try {
+      const result = await this.planillasService.conciliarLote(body.planillas);
+      return result;
+    } catch (error) {
+      throw new HttpException(
+        { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error durante la conciliación masiva del lote', message: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Post('revertir')
+  async revertirPlanilla(@Body() payload: RevertirPayload) {
+    const requiredFields = ['usuario_operador', 'planilla_id', 'banco', 'fecha_recaudacion'];
+    for (const field of requiredFields) {
+      if (payload[field] === undefined || payload[field] === null) {
+        throw new HttpException(
+          { status: HttpStatus.BAD_REQUEST, error: 'Bad Request', message: `El campo ${field} es obligatorio.` },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+    }
+
+    try {
+      const result = await this.planillasService.revertirPlanilla(payload);
+      return result;
+    } catch (error) {
+      throw new HttpException(
+        { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error durante la reversión de la conciliación', message: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+}
