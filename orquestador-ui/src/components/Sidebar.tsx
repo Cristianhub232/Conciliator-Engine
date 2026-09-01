@@ -92,8 +92,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Encabezado Logo */}
       <div className="sidebar-header">
         <div className="sidebar-brand">
-          <div className="sidebar-logo">
-            <Database size={18} />
+          <div className="sidebar-logo" style={{ background: 'transparent', boxShadow: 'none', width: '38px', height: '38px', overflow: 'hidden' }}>
+            <img 
+              src="/logo-tech-x.png" 
+              alt="Logo ONT" 
+              style={{ width: '100%', height: '100%', objectFit: 'contain' }} 
+            />
           </div>
           {!isCollapsed && (
             <div className="sidebar-title">

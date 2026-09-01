@@ -65,17 +65,13 @@ export const LoginView: React.FC = () => {
           background: '#ffffff'
         }}>
           <div style={{
-            width: '54px',
-            height: '54px',
-            borderRadius: '14px',
-            background: 'linear-gradient(135deg, #1d70b8, #2563eb)',
-            color: '#ffffff',
-            display: 'grid',
-            placeItems: 'center',
+            width: '64px',
+            height: '64px',
             margin: '0 auto 16px',
-            boxShadow: '0 4px 14px rgba(29, 112, 184, 0.3)'
+            display: 'grid',
+            placeItems: 'center'
           }}>
-            <Database size={28} />
+            <img src="/logo-tech-x.png" alt="ONT Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
           </div>
 
           <h1 style={{
