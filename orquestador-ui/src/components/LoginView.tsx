@@ -197,17 +197,11 @@ export const LoginView: React.FC = () => {
         {/* Anillo de luz decorativo */}
         <div style={{ position: 'absolute', left: '58%', top: '9%', width: '72px', height: '72px', border: '3px solid rgba(63,180,168,0.55)', borderRadius: '50%', pointerEvents: 'none' }} />
 
-        {/* Encabezado de Marca Superior */}
-        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '14px' }}>
-          <div style={{ width: '34px', height: '34px', position: 'relative', flex: 'none' }}>
-            <div style={{ position: 'absolute', inset: 0, clipPath: 'polygon(0% 0%, 30% 0%, 56% 45%, 26% 45%)', background: '#3FB4A8' }} />
-            <div style={{ position: 'absolute', inset: 0, clipPath: 'polygon(100% 0%, 70% 0%, 44% 45%, 74% 45%)', background: '#4FC3B4' }} />
-            <div style={{ position: 'absolute', inset: 0, clipPath: 'polygon(26% 55%, 56% 55%, 30% 100%, 0% 100%)', background: '#8CC63F' }} />
-            <div style={{ position: 'absolute', inset: 0, clipPath: 'polygon(74% 55%, 44% 55%, 70% 100%, 100% 100%)', background: '#9BD24A' }} />
+        {/* Encabezado Superior */}
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <div style={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.16em', color: 'rgba(255,255,255,0.72)', textTransform: 'uppercase' }}>
+            SOLUCIONES BASADAS EN DATOS
           </div>
-          <div style={{ fontSize: '20px', fontWeight: 800, letterSpacing: '-0.02em', color: '#ffffff' }}>Datax</div>
-          <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.28)' }} />
-          <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.16em', color: 'rgba(255,255,255,0.62)' }}>SOLUCIONES BASADAS EN DATOS</div>
         </div>
 
         {/* Contenido Central: Título y Descripción */}
