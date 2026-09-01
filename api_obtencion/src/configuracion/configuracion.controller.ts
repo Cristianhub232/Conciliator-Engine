@@ -22,6 +22,11 @@ export class ConfiguracionController {
     return await this.configService.testConnection(body);
   }
 
+  @Post('test-connection')
+  async testConnectionAlias(@Body() body: OracleDbConfigDto) {
+    return this.testConnection(body);
+  }
+
   @Post('save')
   async saveAndReconnect(@Body() body: OracleDbConfigDto) {
     if (!body.host || !body.user || !body.password) {
