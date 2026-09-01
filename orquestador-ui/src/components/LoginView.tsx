@@ -65,13 +65,18 @@ export const LoginView: React.FC = () => {
           background: '#ffffff'
         }}>
           <div style={{
-            width: '64px',
-            height: '64px',
+            maxWidth: '260px',
+            height: '70px',
             margin: '0 auto 16px',
-            display: 'grid',
-            placeItems: 'center'
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
           }}>
-            <img src="/logo-tech-x.png" alt="ONT Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+            <img 
+              src="/Logo_basado_en_banner.png" 
+              alt="Datax — Soluciones basadas en datos" 
+              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} 
+            />
           </div>
 
           <h1 style={{
