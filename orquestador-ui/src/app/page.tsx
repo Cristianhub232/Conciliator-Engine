@@ -194,7 +194,10 @@ function OrquestadorPageInner() {
 
   // Conciliación Masiva Secuencial Atómica con Soporte de Detención Inmediata
   const autorizarMasivo = async () => {
-    const seleccionadas = planillasFiltradas.filter(p => selectedPlanillas.has(p.NRO_PLANILLA_FALTANTE));
+    const seleccionadas = selectedPlanillas.size > 0
+      ? planillasFiltradas.filter(p => selectedPlanillas.has(p.NRO_PLANILLA_FALTANTE) && !successStates[p.NRO_PLANILLA_FALTANTE])
+      : planillasFiltradas.filter(p => !successStates[p.NRO_PLANILLA_FALTANTE]);
+
     if (seleccionadas.length === 0) return;
 
     stopProcessRef.current = false;
@@ -745,16 +748,31 @@ function OrquestadorPageInner() {
                   </span>
                 )}
               </div>
-              <div className="card-head-actions">
-                {selectedPlanillas.size > 0 && (
-                  <button onClick={autorizarMasivo} disabled={isMassAuthorizing} className="btn btn-primary btn-sm">
-                    {isMassAuthorizing ? (
-                      <><span className="spinner spinner-white" /> {massProgress.current}/{massProgress.total}</>
-                    ) : (
-                      <>Autorizar ({selectedPlanillas.size})</>
-                    )}
-                  </button>
-                )}
+              <div className="card-head-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  onClick={autorizarMasivo}
+                  disabled={isMassAuthorizing || isMappingAll || planillasFiltradas.filter(p => !successStates[p.NRO_PLANILLA_FALTANTE]).length === 0}
+                  className="btn btn-primary btn-sm"
+                  style={{
+                    background: '#2E7D4F',
+                    color: '#ffffff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontWeight: 700,
+                    boxShadow: '0 1px 3px rgba(46, 125, 79, 0.25)'
+                  }}
+                >
+                  <CheckCircle size={14} />
+                  {isMassAuthorizing ? (
+                    <><span className="spinner spinner-white" /> Conciliando ({massProgress.current}/{massProgress.total})</>
+                  ) : selectedPlanillas.size > 0 ? (
+                    <>Conciliar ({selectedPlanillas.size})</>
+                  ) : (
+                    <>Conciliar Lote ({planillasFiltradas.filter(p => !successStates[p.NRO_PLANILLA_FALTANTE]).length})</>
+                  )}
+                </button>
+
                 <button onClick={resolverTodas} disabled={isMappingAll || isMassAuthorizing} className="btn btn-ghost btn-sm">
                   <ServerCog size={14} />
                   {isMappingAll ? 'Mapeando…' : 'Mapear Todas'}
