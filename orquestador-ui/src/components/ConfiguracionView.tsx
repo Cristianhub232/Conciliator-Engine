@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { 
   Settings, 
-  Database, 
   Server, 
   CheckCircle2, 
   AlertCircle, 
@@ -13,7 +12,6 @@ import {
   Activity, 
   Eye, 
   EyeOff, 
-  ShieldAlert, 
   Cpu, 
   HardDrive
 } from 'lucide-react';
@@ -99,13 +97,14 @@ export const ConfiguracionView: React.FC = () => {
     }
   };
 
-  // Probar Conexión (Ping Test)
+  // Test de Conexión en Caliente
   const handleTestConnection = async () => {
     setTesting(true);
     setTestResult(null);
     setNotification(null);
+
     try {
-      const res = await axios.post('/api/orquestador/configuracion/test', {
+      const res = await axios.post('/api/orquestador/configuracion/test-connection', {
         host,
         port: Number(port),
         sid,
@@ -113,18 +112,18 @@ export const ConfiguracionView: React.FC = () => {
         user,
         password
       });
+
       setTestResult({
         tested: true,
         success: res.data.success,
-        message: res.data.message,
-        version: res.data.version,
-        latency: res.data.latency
+        message: res.data.message || (res.data.success ? 'Conexión exitosa' : 'Fallo de conexión'),
+        version: res.data.version
       });
     } catch (err: any) {
       setTestResult({
         tested: true,
         success: false,
-        message: err.response?.data?.message || err.message || 'Error al conectar'
+        message: err.response?.data?.message || err.message || 'Error al conectar con Oracle'
       });
     } finally {
       setTesting(false);
@@ -170,202 +169,208 @@ export const ConfiguracionView: React.FC = () => {
   };
 
   return (
-    <div className="container" style={{ maxWidth: '100%', padding: 0 }}>
-      {/* ── Topbar / Page Head ── */}
-      <header className="app-topbar">
-        <div className="app-topbar-left">
-          <div className="app-logo-mark" style={{ background: '#0284c7' }}>
-            <Settings size={18} strokeWidth={2.5} />
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', background: '#F6F8FA' }}>
+      {/* ── Topbar ── */}
+      <header style={{ display: 'flex', alignItems: 'center', gap: '18px', padding: '18px 28px', background: '#ffffff', borderBottom: '1px solid #E6EBF1' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '34px', height: '34px', flex: 'none', borderRadius: '9px', background: '#EDF4FB', color: '#1E5C99' }}>
+            <Settings size={18} strokeWidth={2.2} />
           </div>
           <div>
-            <h1 className="app-title">Configuración de Entorno (.env)</h1>
-            <p className="app-subtitle">Gestión de Ambientes y Parámetros de Conexión Oracle SIGECOF</p>
+            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 800, letterSpacing: '-0.02em', color: '#14263C' }}>
+              Configuración de Entorno (.env)
+            </h1>
+            <div style={{ marginTop: '2px', fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', color: '#8797A8', textTransform: 'uppercase' }}>
+              GESTIÓN DE AMBIENTES Y PARÁMETROS DE CONEXIÓN ORACLE SIGECOF
+            </div>
           </div>
         </div>
 
         {/* Estado activo actual */}
         {currentConfig && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 14px', background: 'var(--surface-1)', border: '1px solid var(--border-default)', borderRadius: 'var(--r-full)', fontSize: 'var(--fs-xs)', fontWeight: 600 }}>
-            <span className="status-dot"></span>
-            <span>Host Activo:</span>
-            <span style={{ color: 'var(--brand)', fontFamily: 'var(--font-mono)' }}>{currentConfig.host}:{currentConfig.port}</span>
-            <span className="badge badge-info">{currentConfig.sid || currentConfig.service_name}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', height: '36px', padding: '0 14px', background: '#ffffff', border: '1px solid #E1E7EE', borderRadius: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '11.5px', color: '#3D4F66' }}>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#34A853', display: 'inline-block' }}></span>
+            <span>Host activo:</span>
+            <span style={{ color: '#1E5C99', fontWeight: 700 }}>{currentConfig.host}:{currentConfig.port}</span>
+            <span style={{ padding: '2px 6px', borderRadius: '4px', background: '#EDF4FB', color: '#1E5C99', fontWeight: 700 }}>{currentConfig.sid || currentConfig.service_name}</span>
           </div>
         )}
       </header>
 
-      {/* ── Notificaciones ── */}
-      {notification && (
-        <div style={{ 
-          padding: '16px 20px', 
-          background: notification.type === 'success' ? 'var(--success-soft)' : 'var(--danger-soft)', 
-          border: `1px solid ${notification.type === 'success' ? 'var(--success-border)' : 'var(--danger-border)'}`, 
-          borderRadius: 'var(--r-md)', 
-          color: notification.type === 'success' ? 'var(--success)' : 'var(--danger)', 
-          marginBottom: '24px', 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: '10px' 
-        }}>
-          {notification.type === 'success' ? <CheckCircle2 size={20} /> : <AlertCircle size={20} />}
-          <span style={{ fontWeight: 600, fontSize: 'var(--fs-sm)' }}>{notification.message}</span>
-        </div>
-      )}
+      {/* ── Main View Area ── */}
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '20px 28px 32px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
-      {/* ── Selector de Presets de Ambiente ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-        {/* Preset Desarrollo */}
-        <div 
-          onClick={() => handleSelectPreset('desarrollo')}
-          className="card"
-          style={{ 
-            cursor: 'pointer', 
-            padding: '18px 20px', 
-            border: perfilSeleccionado === 'desarrollo' ? '2px solid var(--brand)' : '1px solid var(--border-default)',
-            background: perfilSeleccionado === 'desarrollo' ? 'var(--brand-soft)' : 'var(--surface-1)',
-            transition: 'all var(--dur-fast) var(--ease)'
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, color: 'var(--text-primary)' }}>
-              <Cpu size={18} color="var(--brand)" />
-              <span>Desarrollo / Certificación</span>
+        {/* ── Notificaciones ── */}
+        {notification && (
+          <div style={{ 
+            padding: '14px 18px', 
+            background: notification.type === 'success' ? '#E9F6EE' : '#FBEDEA', 
+            border: `1px solid ${notification.type === 'success' ? '#C8E6D3' : '#F3C4BA'}`, 
+            borderRadius: '10px', 
+            color: notification.type === 'success' ? '#2E7D4F' : '#C0492F', 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '10px' 
+          }}>
+            {notification.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+            <span style={{ fontWeight: 600, fontSize: '13px' }}>{notification.message}</span>
+          </div>
+        )}
+
+        {/* ── Selector de Presets de Ambiente ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '12px' }}>
+          {/* Preset Desarrollo */}
+          <div 
+            onClick={() => handleSelectPreset('desarrollo')}
+            style={{ 
+              cursor: 'pointer', 
+              padding: '16px 18px', 
+              border: '1px solid',
+              borderColor: perfilSeleccionado === 'desarrollo' ? '#1E5C99' : '#E6EBF1',
+              borderRadius: '10px',
+              background: perfilSeleccionado === 'desarrollo' ? '#EDF4FB' : '#ffffff',
+              transition: 'all 120ms ease'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, color: '#14263C', fontSize: '14px' }}>
+                <Cpu size={18} color="#1E5C99" />
+                <span>Desarrollo / Certificación</span>
+              </div>
+              {perfilSeleccionado === 'desarrollo' && <span style={{ padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, background: '#1E5C99', color: '#ffffff' }}>Seleccionado</span>}
             </div>
-            {perfilSeleccionado === 'desarrollo' && <span className="badge badge-info">Seleccionado</span>}
-          </div>
-          <p style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-            Servidor Oracle 19c `cert_rep` para pruebas funcionales y QA.
-          </p>
-          <div style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-            172.21.65.90:1521 (Usuario: ONT_SIR_BOT)
-          </div>
-        </div>
-
-        {/* Preset Producción */}
-        <div 
-          onClick={() => handleSelectPreset('produccion')}
-          className="card"
-          style={{ 
-            cursor: 'pointer', 
-            padding: '18px 20px', 
-            border: perfilSeleccionado === 'produccion' ? '2px solid var(--warning)' : '1px solid var(--border-default)',
-            background: perfilSeleccionado === 'produccion' ? 'var(--warning-soft)' : 'var(--surface-1)',
-            transition: 'all var(--dur-fast) var(--ease)'
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, color: 'var(--text-primary)' }}>
-              <HardDrive size={18} color="var(--warning)" />
-              <span>Producción SIGECOF</span>
+            <p style={{ fontSize: '12.5px', color: '#6B7C90', margin: '0 0 6px' }}>
+              Servidor Oracle 19c `cert_rep` para pruebas funcionales y QA.
+            </p>
+            <div style={{ fontSize: '11.5px', fontFamily: "'IBM Plex Mono', monospace", color: '#8797A8' }}>
+              172.21.65.90:1521 (Usuario: ONT_SIR_BOT)
             </div>
-            {perfilSeleccionado === 'produccion' && <span className="badge badge-warning">Seleccionado</span>}
           </div>
-          <p style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-            Servidor central SIGECOF Oracle 12c/19c (Instancia productiva).
-          </p>
-          <div style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-            10.79.6.247:1521 (Usuario: consulta)
+
+          {/* Preset Producción */}
+          <div 
+            onClick={() => handleSelectPreset('produccion')}
+            style={{ 
+              cursor: 'pointer', 
+              padding: '16px 18px', 
+              border: '1px solid',
+              borderColor: perfilSeleccionado === 'produccion' ? '#1E5C99' : '#E6EBF1',
+              borderRadius: '10px',
+              background: perfilSeleccionado === 'produccion' ? '#EDF4FB' : '#ffffff',
+              transition: 'all 120ms ease'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, color: '#14263C', fontSize: '14px' }}>
+                <HardDrive size={18} color="#1E5C99" />
+                <span>Producción SIGECOF</span>
+              </div>
+              {perfilSeleccionado === 'produccion' && <span style={{ padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, background: '#1E5C99', color: '#ffffff' }}>Seleccionado</span>}
+            </div>
+            <p style={{ fontSize: '12.5px', color: '#6B7C90', margin: '0 0 6px' }}>
+              Servidor central SIGECOF Oracle 12c/19c (Instancia productiva).
+            </p>
+            <div style={{ fontSize: '11.5px', fontFamily: "'IBM Plex Mono', monospace", color: '#8797A8' }}>
+              10.79.6.247:1521 (Usuario: consulta)
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* ── Formulario de Configuración ── */}
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <div className="card-head">
-          <div className="card-title">
-            <Server size={18} color="var(--brand)" />
-            <span>Parámetros de Conexión Oracle (.env)</span>
+        {/* ── Formulario de Configuración ── */}
+        <div style={{ background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px', padding: '20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #EDF1F5', paddingBottom: '14px', marginBottom: '18px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 800, color: '#14263C' }}>
+              <Server size={18} color="#1E5C99" />
+              <span>Parámetros de Conexión Oracle (.env)</span>
+            </div>
+            <span style={{ fontSize: '12px', color: '#8797A8' }}>
+              Guardado en <code style={{ fontFamily: "'IBM Plex Mono', monospace", color: '#1E5C99' }}>api_obtencion/.env</code>
+            </span>
           </div>
-          <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
-            Los cambios se guardan directamente en <code style={{ fontFamily: 'var(--font-mono)' }}>api_obtencion/.env</code>
-          </span>
-        </div>
 
-        <div className="card-body">
-          <form onSubmit={handleSaveAndReconnect} className="stack" style={{ gap: '20px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+          <form onSubmit={handleSaveAndReconnect} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '14px' }}>
               {/* Host */}
-              <div className="field">
-                <label className="field-label">Host / Dirección IP</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#6B7C90' }}>HOST / DIRECCIÓN IP</label>
                 <input
                   type="text"
                   value={host}
                   onChange={(e) => { setHost(e.target.value); setPerfilSeleccionado('personalizado'); }}
                   placeholder="Ej. 172.21.65.90 o 10.79.6.247"
-                  className="input-field mono"
+                  style={{ height: '38px', padding: '0 11px', fontSize: '13.5px', fontFamily: "'IBM Plex Mono', monospace", color: '#14263C', background: '#ffffff', border: '1px solid #E1E7EE', borderRadius: '8px', outline: 'none' }}
                   required
                 />
               </div>
 
               {/* Puerto */}
-              <div className="field">
-                <label className="field-label">Puerto TCP</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#6B7C90' }}>PUERTO TCP</label>
                 <input
                   type="number"
                   value={port}
                   onChange={(e) => { setPort(Number(e.target.value)); setPerfilSeleccionado('personalizado'); }}
                   placeholder="1521"
-                  className="input-field mono"
+                  style={{ height: '38px', padding: '0 11px', fontSize: '13.5px', fontFamily: "'IBM Plex Mono', monospace", color: '#14263C', background: '#ffffff', border: '1px solid #E1E7EE', borderRadius: '8px', outline: 'none' }}
                   required
                 />
               </div>
 
               {/* SID */}
-              <div className="field">
-                <label className="field-label">Oracle SID</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#6B7C90' }}>ORACLE SID</label>
                 <input
                   type="text"
                   value={sid}
                   onChange={(e) => { setSid(e.target.value); setPerfilSeleccionado('personalizado'); }}
                   placeholder="cert_rep o sige1"
-                  className="input-field mono"
+                  style={{ height: '38px', padding: '0 11px', fontSize: '13.5px', fontFamily: "'IBM Plex Mono', monospace", color: '#14263C', background: '#ffffff', border: '1px solid #E1E7EE', borderRadius: '8px', outline: 'none' }}
                 />
               </div>
 
               {/* Service Name */}
-              <div className="field">
-                <label className="field-label">Service Name (Opcional)</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#6B7C90' }}>SERVICE NAME (OPCIONAL)</label>
                 <input
                   type="text"
                   value={serviceName}
                   onChange={(e) => { setServiceName(e.target.value); setPerfilSeleccionado('personalizado'); }}
                   placeholder="estatal o sige1"
-                  className="input-field mono"
+                  style={{ height: '38px', padding: '0 11px', fontSize: '13.5px', fontFamily: "'IBM Plex Mono', monospace", color: '#14263C', background: '#ffffff', border: '1px solid #E1E7EE', borderRadius: '8px', outline: 'none' }}
                 />
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '14px' }}>
               {/* Usuario */}
-              <div className="field">
-                <label className="field-label">Usuario de Base de Datos</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#6B7C90' }}>USUARIO DE BASE DE DATOS</label>
                 <input
                   type="text"
                   value={user}
                   onChange={(e) => { setUser(e.target.value); setPerfilSeleccionado('personalizado'); }}
                   placeholder="Ej. ONT_SIR_BOT o consulta"
-                  className="input-field mono"
+                  style={{ height: '38px', padding: '0 11px', fontSize: '13.5px', fontFamily: "'IBM Plex Mono', monospace", color: '#14263C', background: '#ffffff', border: '1px solid #E1E7EE', borderRadius: '8px', outline: 'none' }}
                   required
                 />
               </div>
 
               {/* Contraseña */}
-              <div className="field">
-                <label className="field-label">Contraseña</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#6B7C90' }}>CONTRASEÑA</label>
                 <div style={{ position: 'relative' }}>
                   <input
                     type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => { setPassword(e.target.value); setPerfilSeleccionado('personalizado'); }}
                     placeholder="Contraseña de BD"
-                    className="input-field mono"
-                    style={{ paddingRight: '40px' }}
+                    style={{ width: '100%', height: '38px', padding: '0 40px 0 11px', fontSize: '13.5px', fontFamily: "'IBM Plex Mono', monospace", color: '#14263C', background: '#ffffff', border: '1px solid #E1E7EE', borderRadius: '8px', outline: 'none' }}
                     required
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    style={{ position: 'absolute', right: '10px', top: '10px', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                    style={{ position: 'absolute', right: '10px', top: '9px', background: 'none', border: 'none', color: '#8797A8', cursor: 'pointer' }}
                     title={showPassword ? "Ocultar" : "Mostrar"}
                   >
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -378,20 +383,20 @@ export const ConfiguracionView: React.FC = () => {
             {testResult && (
               <div style={{ 
                 padding: '14px 18px', 
-                background: testResult.success ? 'var(--success-soft)' : 'var(--danger-soft)', 
-                border: `1px solid ${testResult.success ? 'var(--success-border)' : 'var(--danger-border)'}`, 
-                borderRadius: 'var(--r-md)',
+                background: testResult.success ? '#E9F6EE' : '#FBEDEA', 
+                border: `1px solid ${testResult.success ? '#C8E6D3' : '#F3C4BA'}`, 
+                borderRadius: '8px',
                 display: 'flex',
                 alignItems: 'flex-start',
                 gap: '12px'
               }}>
-                {testResult.success ? <CheckCircle2 size={18} color="var(--success)" style={{ marginTop: 2, flexShrink: 0 }} /> : <AlertCircle size={18} color="var(--danger)" style={{ marginTop: 2, flexShrink: 0 }} />}
+                {testResult.success ? <CheckCircle2 size={18} color="#2E7D4F" style={{ marginTop: 2, flexShrink: 0 }} /> : <AlertCircle size={18} color="#C0492F" style={{ marginTop: 2, flexShrink: 0 }} />}
                 <div>
-                  <div style={{ fontWeight: 700, color: testResult.success ? 'var(--success)' : 'var(--danger)', fontSize: 'var(--fs-sm)' }}>
+                  <div style={{ fontWeight: 700, color: testResult.success ? '#2E7D4F' : '#C0492F', fontSize: '13px' }}>
                     {testResult.message}
                   </div>
                   {testResult.version && (
-                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
+                    <div style={{ fontSize: '11.5px', color: '#6B7C90', marginTop: '4px', fontFamily: "'IBM Plex Mono', monospace" }}>
                       Versión detectada: {testResult.version}
                     </div>
                   )}
@@ -400,48 +405,55 @@ export const ConfiguracionView: React.FC = () => {
             )}
 
             {/* ── Botones de Acción ── */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px', paddingTop: '14px', borderTop: '1px solid #EDF1F5' }}>
               <button
                 type="button"
                 onClick={handleTestConnection}
                 disabled={testing || saving || !host || !user || !password}
-                className="btn btn-ghost"
-                style={{ height: '44px' }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '7px',
+                  height: '38px',
+                  padding: '0 16px',
+                  border: '1px solid #E1E7EE',
+                  borderRadius: '8px',
+                  background: '#ffffff',
+                  color: '#1E5C99',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
               >
-                {testing ? (
-                  <>
-                    <Loader2 size={16} className="spinner" />
-                    Probando Conexión...
-                  </>
-                ) : (
-                  <>
-                    <Activity size={16} color="var(--brand)" />
-                    Probar Conexión (Ping)
-                  </>
-                )}
+                {testing ? <Loader2 size={15} className="spinner" /> : <Activity size={15} color="#1E5C99" />}
+                {testing ? 'Probando conexión…' : 'Probar conexión (Ping)'}
               </button>
 
               <button
                 type="submit"
                 disabled={saving || testing || !host || !user || !password}
-                className="btn btn-primary"
-                style={{ height: '44px' }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '7px',
+                  height: '38px',
+                  padding: '0 18px',
+                  border: 0,
+                  borderRadius: '8px',
+                  background: '#1E5C99',
+                  color: '#ffffff',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
               >
-                {saving ? (
-                  <>
-                    <Loader2 size={16} className="spinner" />
-                    Aplicando Cambios...
-                  </>
-                ) : (
-                  <>
-                    <Save size={16} />
-                    Guardar y Reconectar (.env)
-                  </>
-                )}
+                {saving ? <Loader2 size={15} className="spinner" /> : <Save size={15} />}
+                {saving ? 'Aplicando cambios…' : 'Guardar y reconectar (.env)'}
               </button>
             </div>
           </form>
         </div>
+
       </div>
     </div>
   );

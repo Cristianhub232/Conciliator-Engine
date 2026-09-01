@@ -299,16 +299,20 @@ export const DepuracionView: React.FC = () => {
     .reduce((acc, p) => acc + p.monto, 0) || 0;
 
   return (
-    <div className="container" style={{ maxWidth: '100%', padding: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', background: '#F6F8FA' }}>
       {/* ── Topbar ── */}
-      <header className="app-topbar">
-        <div className="app-topbar-left">
-          <div className="app-logo-mark" style={{ background: '#e11d48' }}>
-            <ShieldAlert size={18} strokeWidth={2.5} />
+      <header style={{ display: 'flex', alignItems: 'center', gap: '18px', padding: '18px 28px', background: '#ffffff', borderBottom: '1px solid #E6EBF1' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '34px', height: '34px', flex: 'none', borderRadius: '9px', background: '#FBEDEA', color: '#C0492F' }}>
+            <ShieldAlert size={18} strokeWidth={2.2} />
           </div>
           <div>
-            <h1 className="app-title">Módulo de Depuración Controlada de Formas</h1>
-            <p className="app-subtitle">Detección, Control y Eliminación Autorizada de Registros No Procesables (79984, 99008, 00084, 79084, 99001)</p>
+            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 800, letterSpacing: '-0.02em', color: '#14263C' }}>
+              Módulo de Depuración
+            </h1>
+            <div style={{ marginTop: '2px', fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', color: '#8797A8', textTransform: 'uppercase' }}>
+              DETECCIÓN, CONTROL Y ELIMINACIÓN AUTORIZADA DE REGISTROS NO PROCESABLES
+            </div>
           </div>
         </div>
 
@@ -317,139 +321,176 @@ export const DepuracionView: React.FC = () => {
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            padding: '6px 14px',
-            background: 'var(--surface-1)',
-            border: '1px solid var(--border-default)',
-            borderRadius: 'var(--r-full)',
-            fontSize: 'var(--fs-xs)',
-            fontWeight: 600
+            height: '36px',
+            padding: '0 12px',
+            background: '#ffffff',
+            border: '1px solid #F3C4BA',
+            borderRadius: '8px',
+            fontFamily: "'IBM Plex Mono', monospace",
+            fontSize: '11.5px',
+            color: '#C0492F',
+            fontWeight: 700
           }}>
-            <span className="status-dot" style={{ background: '#e11d48', boxShadow: '0 0 6px #e11d48' }}></span>
-            <span>Control de Seguridad Activo</span>
-            <span className="badge badge-danger">{formasConfiguradas.filter(f => f.estado === 'ACTIVO').length} Formas en Control</span>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#C0492F', display: 'inline-block' }}></span>
+            <span>CONTROL ONT ACTIVO</span>
           </div>
 
           <button 
             type="button" 
             onClick={() => { loadFormasConfiguradas(); loadAuditHistory(); }} 
-            className="btn btn-ghost" 
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '36px', height: '36px', border: '1px solid #E1E7EE', borderRadius: '8px', background: '#ffffff', cursor: 'pointer', color: '#6B7C90' }}
             title="Refrescar"
           >
-            <RefreshCw size={16} />
+            <RefreshCw size={15} />
           </button>
         </div>
       </header>
 
-      {/* ── Toast ── */}
-      {toast && (
-        <div style={{ 
-          padding: '12px 18px', 
-          background: toast.type === 'success' ? 'var(--success-soft)' : 'var(--danger-soft)', 
-          border: `1px solid ${toast.type === 'success' ? 'var(--success-border)' : 'var(--danger-border)'}`, 
-          borderRadius: 'var(--r-md)', 
-          color: toast.type === 'success' ? 'var(--success)' : 'var(--danger)', 
-          marginBottom: '16px', 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: '10px' 
-        }}>
-          {toast.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
-          <span style={{ fontWeight: 600, fontSize: 'var(--fs-sm)' }}>{toast.message}</span>
-        </div>
-      )}
-
       {/* ── Sub-Navigation Tabs ── */}
-      <div className="tab-nav" style={{ marginBottom: '20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '22px', padding: '0 28px', background: '#ffffff', borderBottom: '1px solid #E6EBF1', marginBottom: '20px' }}>
         <button
           type="button"
           onClick={() => setActiveTab('escaner')}
-          className={`tab-nav-btn ${activeTab === 'escaner' ? 'active' : ''}`}
+          style={{
+            padding: '12px 2px',
+            border: 0,
+            borderBottom: activeTab === 'escaner' ? '2px solid #1E5C99' : '2px solid transparent',
+            background: 'transparent',
+            fontSize: '13px',
+            fontWeight: activeTab === 'escaner' ? 800 : 600,
+            color: activeTab === 'escaner' ? '#14263C' : '#8797A8',
+            cursor: 'pointer'
+          }}
         >
-          <Search size={16} />
-          <span>Escáner y Depuración de Lotes</span>
+          Escáner y depuración de lotes
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('catalogo')}
-          className={`tab-nav-btn ${activeTab === 'catalogo' ? 'active' : ''}`}
+          style={{
+            padding: '12px 2px',
+            border: 0,
+            borderBottom: activeTab === 'catalogo' ? '2px solid #1E5C99' : '2px solid transparent',
+            background: 'transparent',
+            fontSize: '13px',
+            fontWeight: activeTab === 'catalogo' ? 800 : 600,
+            color: activeTab === 'catalogo' ? '#14263C' : '#8797A8',
+            cursor: 'pointer'
+          }}
         >
-          <Sliders size={16} />
-          <span>Catálogo de Formas a Depurar ({formasConfiguradas.length})</span>
+          Formas configuradas ({formasConfiguradas.length})
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('auditoria')}
-          className={`tab-nav-btn ${activeTab === 'auditoria' ? 'active' : ''}`}
+          style={{
+            padding: '12px 2px',
+            border: 0,
+            borderBottom: activeTab === 'auditoria' ? '2px solid #1E5C99' : '2px solid transparent',
+            background: 'transparent',
+            fontSize: '13px',
+            fontWeight: activeTab === 'auditoria' ? 800 : 600,
+            color: activeTab === 'auditoria' ? '#14263C' : '#8797A8',
+            cursor: 'pointer'
+          }}
         >
-          <History size={16} />
-          <span>Bitácora de Depuraciones ({auditList.length})</span>
+          Bitácora de depuraciones ({auditList.length})
         </button>
       </div>
+
+      {/* ── Toast ── */}
+      {toast && (
+        <div style={{ 
+          margin: '0 28px 16px',
+          padding: '12px 18px', 
+          background: toast.type === 'success' ? '#E9F6EE' : '#FBEDEA', 
+          border: `1px solid ${toast.type === 'success' ? '#C8E6D3' : '#F3C4BA'}`, 
+          borderRadius: '10px', 
+          color: toast.type === 'success' ? '#2E7D4F' : '#C0492F', 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: '10px' 
+        }}>
+          {toast.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+          <span style={{ fontWeight: 600, fontSize: '13px' }}>{toast.message}</span>
+        </div>
+      )}
 
       {/* ══════════════════════════════════════════════════════════════════════
           TAB 1: ESCÁNER Y DEPURACIÓN DE LOTES
       ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'escaner' && (
-        <div className="stack" style={{ gap: '20px' }}>
+        <div style={{ padding: '0 28px 32px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {/* Panel de Parámetros de Búsqueda */}
-          <div className="search-panel">
-            <form onSubmit={handleScanLote} style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', alignItems: 'flex-end', width: '100%' }}>
-              <div className="field" style={{ minWidth: '150px' }}>
-                <label className="field-label">Fecha de Recaudación</label>
-                <input
-                  type="date"
-                  value={fecha}
-                  onChange={(e) => setFecha(e.target.value)}
-                  className="input-field mono"
-                  required
-                />
-              </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr)) auto', gap: '14px', alignItems: 'end', padding: '16px', background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#6B7C90' }}>FECHA DE RECAUDACIÓN</label>
+              <input
+                type="date"
+                value={fecha}
+                onChange={(e) => setFecha(e.target.value)}
+                style={{ height: '38px', padding: '0 11px', fontSize: '13.5px', fontFamily: "'IBM Plex Mono', monospace", color: '#14263C', background: '#ffffff', border: '1px solid #E1E7EE', borderRadius: '8px', outline: 'none' }}
+                required
+              />
+            </div>
 
-              <div className="field" style={{ minWidth: '150px' }}>
-                <label className="field-label">Banco Recaudador</label>
-                <select
-                  value={banco}
-                  onChange={(e) => setBanco(e.target.value)}
-                  className="input-field mono"
-                  required
-                >
-                  <option value="105">105 — BANCO MERCANTIL</option>
-                  <option value="102">102 — BANCO DE VENEZUELA</option>
-                  <option value="104">104 — BANCO VENEZOLANO DE CRÉDITO</option>
-                  <option value="108">108 — BANCO PROVINCIAL</option>
-                  <option value="114">114 — BANCARIBE</option>
-                  <option value="115">115 — BANCO EXTERIOR</option>
-                  <option value="116">116 — BANCO OCCIDENTAL DE DESCUENTO</option>
-                  <option value="128">128 — BANCO CARONÍ</option>
-                  <option value="134">134 — BANESCO</option>
-                  <option value="163">163 — BANCO DEL TESORO</option>
-                  <option value="175">175 — BANCO BICENTENARIO</option>
-                </select>
-              </div>
-
-              <div className="field" style={{ minWidth: '130px' }}>
-                <label className="field-label">Expediente (Opcional)</label>
-                <input
-                  type="text"
-                  value={expediente}
-                  onChange={(e) => setExpediente(e.target.value)}
-                  placeholder="Ej. 14389"
-                  className="input-field mono"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={scanning}
-                className="btn btn-primary"
-                style={{ height: '42px', background: '#e11d48' }}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#6B7C90' }}>BANCO RECAUDADOR</label>
+              <select
+                value={banco}
+                onChange={(e) => setBanco(e.target.value)}
+                style={{ height: '38px', padding: '0 9px', fontSize: '13.5px', fontWeight: 600, color: '#14263C', background: '#ffffff', border: '1px solid #E1E7EE', borderRadius: '8px', outline: 'none', cursor: 'pointer' }}
+                required
               >
-                {scanning ? <Loader2 size={16} className="spinner" /> : <Search size={16} />}
-                Escanear Lote para Depuración
-              </button>
-            </form>
+                <option value="105">105 — BANCO MERCANTIL</option>
+                <option value="102">102 — BANCO DE VENEZUELA</option>
+                <option value="104">104 — BANCO VENEZOLANO DE CRÉDITO</option>
+                <option value="108">108 — BANCO PROVINCIAL</option>
+                <option value="114">114 — BANCARIBE</option>
+                <option value="115">115 — BANCO EXTERIOR</option>
+                <option value="116">116 — BANCO OCCIDENTAL DE DESCUENTO</option>
+                <option value="128">128 — BANCO CARONÍ</option>
+                <option value="134">134 — BANESCO</option>
+                <option value="163">163 — BANCO DEL TESORO</option>
+                <option value="175">175 — BANCO BICENTENARIO</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#6B7C90' }}>EXPEDIENTE (OPCIONAL)</label>
+              <input
+                type="text"
+                value={expediente}
+                onChange={(e) => setExpediente(e.target.value)}
+                placeholder="Ej. 14389"
+                style={{ height: '38px', padding: '0 11px', fontSize: '13.5px', fontFamily: "'IBM Plex Mono', monospace", color: '#14263C', background: '#ffffff', border: '1px solid #E1E7EE', borderRadius: '8px', outline: 'none' }}
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={handleScanLote}
+              disabled={scanning}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                height: '38px',
+                padding: '0 18px',
+                border: 0,
+                borderRadius: '8px',
+                background: '#1E5C99',
+                color: '#ffffff',
+                fontSize: '13px',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+            >
+              {scanning ? <Loader2 size={15} className="spinner" /> : <Search size={15} />}
+              Escanear lote
+            </button>
           </div>
 
           {/* Resultados del Escaneo */}

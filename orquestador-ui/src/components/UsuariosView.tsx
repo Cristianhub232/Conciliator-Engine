@@ -216,243 +216,327 @@ export const UsuariosView: React.FC = () => {
   const analistasCount = usuarios.filter(u => u.rol === 'ANALISTA' || u.rol === 'TRANSCRIPTOR').length;
 
   return (
-    <div className="container" style={{ maxWidth: '100%', padding: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', background: '#F6F8FA' }}>
       {/* ── Topbar ── */}
-      <header className="app-topbar">
-        <div className="app-topbar-left">
-          <div className="app-logo-mark" style={{ background: '#7c3aed' }}>
-            <Users size={18} strokeWidth={2.5} />
+      <header style={{ display: 'flex', alignItems: 'center', gap: '18px', padding: '18px 28px', background: '#ffffff', borderBottom: '1px solid #E6EBF1' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '34px', height: '34px', flex: 'none', borderRadius: '9px', background: '#EDF4FB', color: '#1E5C99' }}>
+            <Users size={18} strokeWidth={2.2} />
           </div>
           <div>
-            <h1 className="app-title">Gestión de Usuarios</h1>
-            <p className="app-subtitle">Control de Cuentas, Roles y Permisos en PostgreSQL (`motor_app`)</p>
+            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 800, letterSpacing: '-0.02em', color: '#14263C' }}>
+              Gestión de Usuarios
+            </h1>
+            <div style={{ marginTop: '2px', fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', color: '#8797A8', textTransform: 'uppercase' }}>
+              CUENTAS, ROLES Y PERMISOS · ESQUEMA MOTOR_APP
+            </div>
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <button 
             type="button" 
             onClick={loadUsuarios} 
-            className="btn btn-ghost" 
-            title="Refrescar Lista"
+            disabled={loading}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '7px',
+              height: '36px',
+              padding: '0 14px',
+              border: '1px solid #E1E7EE',
+              borderRadius: '8px',
+              background: '#ffffff',
+              fontSize: '13px',
+              fontWeight: 700,
+              color: '#3D4F66',
+              cursor: 'pointer'
+            }}
           >
-            <RefreshCw size={16} className={loading ? 'spinner' : ''} />
+            <RefreshCw size={14} className={loading ? 'spinner' : ''} />
             Refrescar
           </button>
 
           <button 
             type="button" 
             onClick={handleOpenCreate} 
-            className="btn btn-primary"
-            style={{ background: '#7c3aed' }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '7px',
+              height: '36px',
+              padding: '0 14px',
+              border: 0,
+              borderRadius: '8px',
+              background: '#1E5C99',
+              color: '#ffffff',
+              fontSize: '13px',
+              fontWeight: 700,
+              cursor: 'pointer'
+            }}
           >
-            <UserPlus size={16} />
-            Nuevo Usuario
+            <UserPlus size={15} strokeWidth={2.2} />
+            Nuevo usuario
           </button>
         </div>
       </header>
 
-      {/* ── Notificaciones ── */}
-      {notification && (
-        <div style={{ 
-          padding: '14px 18px', 
-          background: notification.type === 'success' ? 'var(--success-soft)' : 'var(--danger-soft)', 
-          border: `1px solid ${notification.type === 'success' ? 'var(--success-border)' : 'var(--danger-border)'}`, 
-          borderRadius: 'var(--r-md)', 
-          color: notification.type === 'success' ? 'var(--success)' : 'var(--danger)', 
-          marginBottom: '20px', 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: '10px' 
-        }}>
-          {notification.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
-          <span style={{ fontWeight: 600, fontSize: 'var(--fs-sm)' }}>{notification.message}</span>
-        </div>
-      )}
+      {/* ── Main View Container ── */}
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '20px 28px 32px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
-      {/* ── KPIs Strip ── */}
-      <div className="kpi-strip">
-        <div className="kpi-item">
-          <div className="kpi-label">Total Usuarios</div>
-          <div className="kpi-number">{totalUsers}</div>
-          <div className="kpi-hint">Esquema motor_app</div>
-        </div>
-        <div className="kpi-item">
-          <div className="kpi-label">Administradores</div>
-          <div className="kpi-number" style={{ color: '#7c3aed' }}>{adminCount}</div>
-          <div className="kpi-hint">Acceso total al sistema</div>
-        </div>
-        <div className="kpi-item">
-          <div className="kpi-label">Analistas y Operadores</div>
-          <div className="kpi-number" style={{ color: 'var(--brand)' }}>{analistasCount}</div>
-          <div className="kpi-hint">Conciliación y consulta</div>
-        </div>
-        <div className="kpi-item">
-          <div className="kpi-label">Cuentas Activas</div>
-          <div className="kpi-number" style={{ color: 'var(--success)' }}>{activeCount}</div>
-          <div className="kpi-hint">Habilitadas para ingresar</div>
-        </div>
-      </div>
+        {/* ── Notificaciones ── */}
+        {notification && (
+          <div style={{ 
+            padding: '14px 18px', 
+            background: notification.type === 'success' ? '#E9F6EE' : '#FBEDEA', 
+            border: `1px solid ${notification.type === 'success' ? '#C8E6D3' : '#F3C4BA'}`, 
+            borderRadius: '10px', 
+            color: notification.type === 'success' ? '#2E7D4F' : '#C0492F', 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '10px' 
+          }}>
+            {notification.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+            <span style={{ fontWeight: 600, fontSize: '13px' }}>{notification.message}</span>
+          </div>
+        )}
 
-      {/* ── Filtros y Búsqueda ── */}
-      <div className="search-panel" style={{ marginBottom: '24px' }}>
-        <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '12px', flex: 1, flexWrap: 'wrap' }}>
-          <div style={{ position: 'relative', flex: '1 1 240px' }}>
-            <Search size={16} color="#94a3b8" style={{ position: 'absolute', left: '12px', top: '12px' }} />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar por nombre, apellido o correo..."
-              className="input-field"
-              style={{ paddingLeft: '36px' }}
-            />
+        {/* ── 4 KPI Cards Grid ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '12px' }}>
+          <div style={{ padding: '15px 16px', background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px' }}>
+            <div style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#8797A8' }}>TOTAL USUARIOS</div>
+            <div style={{ marginTop: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '27px', fontWeight: 600, color: '#14263C' }}>{totalUsers}</div>
+            <div style={{ marginTop: '5px', fontSize: '11.5px', fontWeight: 600, color: '#6B7C90' }}>Esquema motor_app</div>
           </div>
 
-          <div style={{ width: '180px' }}>
-            <select 
-              value={rolFilter} 
-              onChange={(e) => setRolFilter(e.target.value)}
-              className="input-field"
+          <div style={{ padding: '15px 16px', background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px' }}>
+            <div style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#8797A8' }}>ADMINISTRADORES</div>
+            <div style={{ marginTop: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '27px', fontWeight: 600, color: '#1E5C99' }}>{adminCount}</div>
+            <div style={{ marginTop: '5px', fontSize: '11.5px', fontWeight: 600, color: '#6B7C90' }}>Acceso total al motor</div>
+          </div>
+
+          <div style={{ padding: '15px 16px', background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px' }}>
+            <div style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#8797A8' }}>ANALISTAS Y OPERADORES</div>
+            <div style={{ marginTop: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '27px', fontWeight: 600, color: '#3FB4A8' }}>{analistasCount}</div>
+            <div style={{ marginTop: '5px', fontSize: '11.5px', fontWeight: 600, color: '#6B7C90' }}>Conciliación y consulta</div>
+          </div>
+
+          <div style={{ padding: '15px 16px', background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px' }}>
+            <div style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#8797A8' }}>CUENTAS ACTIVAS</div>
+            <div style={{ marginTop: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '27px', fontWeight: 600, color: '#2E7D4F' }}>{activeCount}</div>
+            <div style={{ marginTop: '5px', fontSize: '11.5px', fontWeight: 600, color: '#6B7C90' }}>Habilitadas para ingresar</div>
+          </div>
+        </div>
+
+        {/* ── Filtros y Búsqueda ── */}
+        <div style={{ display: 'flex', gap: '12px', padding: '14px 16px', background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px', alignItems: 'center' }}>
+          <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '12px', flex: 1, alignItems: 'center' }}>
+            <div style={{ position: 'relative', flex: 1 }}>
+              <Search size={15} color="#9CA9B8" style={{ position: 'absolute', left: '12px', top: '11px', pointerEvents: 'none' }} />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar por nombre, apellido o correo…"
+                style={{ width: '100%', height: '36px', padding: '0 12px 0 34px', fontSize: '13px', color: '#14263C', background: '#ffffff', border: '1px solid #E1E7EE', borderRadius: '8px', outline: 'none' }}
+              />
+            </div>
+
+            <div style={{ width: '180px' }}>
+              <select 
+                value={rolFilter} 
+                onChange={(e) => setRolFilter(e.target.value)}
+                style={{ width: '100%', height: '36px', padding: '0 10px', fontSize: '13px', color: '#14263C', background: '#ffffff', border: '1px solid #E1E7EE', borderRadius: '8px', outline: 'none', cursor: 'pointer' }}
+              >
+                <option value="">Todos los roles</option>
+                <option value="ADMIN">ADMIN</option>
+                <option value="SUPERVISOR">SUPERVISOR</option>
+                <option value="ANALISTA">ANALISTA</option>
+                <option value="TRANSCRIPTOR">TRANSCRIPTOR</option>
+              </select>
+            </div>
+
+            <div style={{ width: '160px' }}>
+              <select 
+                value={estadoFilter} 
+                onChange={(e) => setEstadoFilter(e.target.value)}
+                style={{ width: '100%', height: '36px', padding: '0 10px', fontSize: '13px', color: '#14263C', background: '#ffffff', border: '1px solid #E1E7EE', borderRadius: '8px', outline: 'none', cursor: 'pointer' }}
+              >
+                <option value="">Todos los estados</option>
+                <option value="ACTIVO">ACTIVO</option>
+                <option value="INACTIVO">INACTIVO</option>
+              </select>
+            </div>
+
+            <button
+              type="submit"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '7px',
+                height: '36px',
+                padding: '0 16px',
+                border: 0,
+                borderRadius: '8px',
+                background: '#1E5C99',
+                color: '#ffffff',
+                fontSize: '13px',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
             >
-              <option value="">Todos los Roles</option>
-              <option value="ADMIN">ADMIN</option>
-              <option value="SUPERVISOR">SUPERVISOR</option>
-              <option value="ANALISTA">ANALISTA</option>
-              <option value="TRANSCRIPTOR">TRANSCRIPTOR</option>
-            </select>
+              <Search size={14} />
+              Filtrar
+            </button>
+          </form>
+        </div>
+
+        {/* ── Tabla de Usuarios ── */}
+        <div style={{ background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px', overflow: 'hidden' }}>
+          
+          {/* Header de Columnas */}
+          <div style={{ display: 'grid', gridTemplateColumns: '50px minmax(0, 1.4fr) minmax(0, 1.4fr) 120px 110px 140px 110px 90px', alignItems: 'center', gap: '12px', padding: '10px 16px', background: '#FAFCFE', borderBottom: '1px solid #EDF1F5', fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.09em', color: '#8797A8' }}>
+            <span>ID</span>
+            <span>FUNCIONARIO</span>
+            <span>CORREO ELECTRÓNICO</span>
+            <span>ROL</span>
+            <span>ESTADO</span>
+            <span>ÚLTIMO ACCESO</span>
+            <span>CREACIÓN</span>
+            <span style={{ textAlign: 'right' }}>ACCIONES</span>
           </div>
 
-          <div style={{ width: '160px' }}>
-            <select 
-              value={estadoFilter} 
-              onChange={(e) => setEstadoFilter(e.target.value)}
-              className="input-field"
-            >
-              <option value="">Todos los Estados</option>
-              <option value="ACTIVO">ACTIVO</option>
-              <option value="INACTIVO">INACTIVO</option>
-            </select>
-          </div>
+          {/* Filas */}
+          {loading ? (
+            <div style={{ padding: '48px 0', textAlign: 'center', color: '#8797A8' }}>
+              <Loader2 size={24} className="spinner" style={{ margin: '0 auto 12px', color: '#1E5C99' }} />
+              <p style={{ fontSize: '13px', fontWeight: 600 }}>Cargando catálogo de usuarios desde PostgreSQL…</p>
+            </div>
+          ) : usuarios.length === 0 ? (
+            <div style={{ padding: '36px 16px', textAlign: 'center', color: '#8797A8', fontSize: '13px' }}>
+              No se encontraron usuarios registrados con los filtros seleccionados.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {usuarios.map((u) => {
+                const initials = `${u.nombre?.[0] || ''}${u.apellido?.[0] || ''}`.toUpperCase();
+                return (
+                  <div
+                    key={u.id}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '50px minmax(0, 1.4fr) minmax(0, 1.4fr) 120px 110px 140px 110px 90px',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '10px 16px',
+                      borderBottom: '1px solid #F1F4F8',
+                      transition: 'background 110ms'
+                    }}
+                  >
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px', color: '#8797A8' }}>
+                      #{u.id}
+                    </span>
 
-          <button type="submit" className="btn btn-primary">
-            <Search size={16} />
-            Filtrar
-          </button>
-        </form>
-      </div>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                      <span style={{
+                        width: '30px',
+                        height: '30px',
+                        borderRadius: '50%',
+                        background: '#EDF4FB',
+                        color: '#1E5C99',
+                        fontWeight: 800,
+                        fontSize: '11px',
+                        display: 'grid',
+                        placeItems: 'center',
+                        flex: 'none'
+                      }}>
+                        {initials || 'U'}
+                      </span>
+                      <span style={{ fontWeight: 700, fontSize: '13px', color: '#14263C', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {u.nombre} {u.apellido}
+                      </span>
+                    </span>
 
-      {/* ── Tabla de Usuarios ── */}
-      <div className="table-section">
-        <div className="table-container">
-          <table className="table">
-            <thead>
-              <tr>
-                <th style={{ width: '60px' }}>ID</th>
-                <th>Usuario / Funcionario</th>
-                <th>Correo Electrónico</th>
-                <th>Rol</th>
-                <th>Estado</th>
-                <th>Último Acceso</th>
-                <th>Fecha Creación</th>
-                <th style={{ textAlign: 'right', width: '120px' }}>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '40px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10 }}>
-                      <Loader2 className="spinner" size={20} />
-                      <span>Cargando catálogo de usuarios desde PostgreSQL...</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : usuarios.length === 0 ? (
-                <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                    No se encontraron usuarios registrados con los filtros seleccionados.
-                  </td>
-                </tr>
-              ) : (
-                usuarios.map((u) => {
-                  const initials = `${u.nombre?.[0] || ''}${u.apellido?.[0] || ''}`.toUpperCase();
-                  return (
-                    <tr key={u.id}>
-                      <td className="mono" style={{ color: 'var(--text-muted)' }}>#{u.id}</td>
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <div style={{
-                            width: '32px',
-                            height: '32px',
-                            borderRadius: '50%',
-                            background: u.rol === 'ADMIN' ? '#f3e8ff' : '#e0f2fe',
-                            color: u.rol === 'ADMIN' ? '#7c3aed' : '#0369a1',
-                            fontWeight: 700,
-                            fontSize: '12px',
-                            display: 'grid',
-                            placeItems: 'center'
-                          }}>
-                            {initials || 'U'}
-                          </div>
-                          <div>
-                            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{u.nombre} {u.apellido}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="mono" style={{ fontSize: '12px' }}>{u.email}</td>
-                      <td>
-                        <span className={`badge ${
-                          u.rol === 'ADMIN' ? 'badge-danger' :
-                          u.rol === 'SUPERVISOR' ? 'badge-warning' :
-                          u.rol === 'TRANSCRIPTOR' ? 'badge-info' : 'badge-success'
-                        }`}>
-                          {u.rol}
-                        </span>
-                      </td>
-                      <td>
-                        <span className={`badge ${u.estado === 'ACTIVO' ? 'badge-success' : 'badge-danger'}`}>
-                          <span className="status-dot" style={{ background: u.estado === 'ACTIVO' ? '#10b981' : '#ef4444', marginRight: 4 }}></span>
-                          {u.estado}
-                        </span>
-                      </td>
-                      <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        {u.ultimo_acceso ? new Date(u.ultimo_acceso).toLocaleString('es-VE') : 'Nunca'}
-                      </td>
-                      <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        {new Date(u.created_at).toLocaleDateString('es-VE')}
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '12.5px', color: '#3D4F66', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {u.email}
+                    </span>
+
+                    <span>
+                      <span style={{
+                        display: 'inline-flex',
+                        padding: '2px 8px',
+                        borderRadius: '999px',
+                        fontFamily: "'IBM Plex Mono', monospace",
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        background: u.rol === 'ADMIN' ? '#FBEDEA' : u.rol === 'SUPERVISOR' ? '#FDF4E3' : '#EDF4FB',
+                        color: u.rol === 'ADMIN' ? '#C0492F' : u.rol === 'SUPERVISOR' ? '#9A6A12' : '#1E5C99'
+                      }}>
+                        {u.rol}
+                      </span>
+                    </span>
+
+                    <span>
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        padding: '2px 8px',
+                        borderRadius: '999px',
+                        fontSize: '11.5px',
+                        fontWeight: 700,
+                        background: u.estado === 'ACTIVO' ? '#E9F6EE' : '#FBEDEA',
+                        color: u.estado === 'ACTIVO' ? '#2E7D4F' : '#C0492F'
+                      }}>
+                        <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: u.estado === 'ACTIVO' ? '#34A853' : '#C0492F' }} />
+                        {u.estado}
+                      </span>
+                    </span>
+
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', color: '#8797A8', whiteSpace: 'nowrap' }}>
+                      {u.ultimo_acceso ? new Date(u.ultimo_acceso).toLocaleString('es-VE') : 'Nunca'}
+                    </span>
+
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', color: '#8797A8', whiteSpace: 'nowrap' }}>
+                      {new Date(u.created_at).toLocaleDateString('es-VE')}
+                    </span>
+
+                    <span style={{ textAlign: 'right' }}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEdit(u)}
+                          style={{ width: '28px', height: '28px', display: 'grid', placeItems: 'center', border: '1px solid #E1E7EE', borderRadius: '6px', background: '#ffffff', cursor: 'pointer' }}
+                          title="Editar Usuario"
+                        >
+                          <Edit size={13} color="#1E5C99" />
+                        </button>
+                        {u.id !== 1 && (
                           <button
                             type="button"
-                            onClick={() => handleOpenEdit(u)}
-                            className="btn btn-ghost"
-                            style={{ padding: '6px 8px', height: 'auto' }}
-                            title="Editar Usuario"
+                            onClick={() => handleOpenDelete(u)}
+                            style={{ width: '28px', height: '28px', display: 'grid', placeItems: 'center', border: '1px solid #F3C4BA', borderRadius: '6px', background: '#FBEDEA', cursor: 'pointer' }}
+                            title="Eliminar Usuario"
                           >
-                            <Edit size={15} color="var(--brand)" />
+                            <Trash2 size={13} color="#C0492F" />
                           </button>
-                          {u.id !== 1 && (
-                            <button
-                              type="button"
-                              onClick={() => handleOpenDelete(u)}
-                              className="btn btn-ghost"
-                              style={{ padding: '6px 8px', height: 'auto' }}
-                              title="Eliminar Usuario"
-                            >
-                              <Trash2 size={15} color="var(--danger)" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                        )}
+                      </div>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Footer de la Tabla */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderTop: '1px solid #EDF1F5' }}>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: '#8797A8' }}>
+              Mostrando {usuarios.length} usuarios registrados
+            </span>
+          </div>
         </div>
+
       </div>
 
       {/* ══════════════════════════════════════════════════════════════════════

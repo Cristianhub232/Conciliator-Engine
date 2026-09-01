@@ -5,9 +5,6 @@ import axios from 'axios';
 import { 
   FolderGit2, 
   Search, 
-  Layers, 
-  CheckCircle2, 
-  Clock, 
   Loader2, 
   AlertCircle,
   Eye
@@ -48,28 +45,43 @@ export const ExpedientesExplorerView: React.FC = () => {
   };
 
   return (
-    <div className="container" style={{ maxWidth: '100%', padding: 0 }}>
-      {/* ── Topbar / Page Head ── */}
-      <header className="app-topbar">
-        <div className="app-topbar-left">
-          <div className="app-logo-mark">
-            <FolderGit2 size={18} strokeWidth={2.5} />
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', background: '#F6F8FA' }}>
+      {/* ── Topbar ── */}
+      <header style={{ display: 'flex', alignItems: 'center', gap: '18px', padding: '18px 28px', background: '#ffffff', borderBottom: '1px solid #E6EBF1' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '34px', height: '34px', flex: 'none', borderRadius: '9px', background: '#EDF4FB', color: '#1E5C99' }}>
+            <FolderGit2 size={18} strokeWidth={2.2} />
           </div>
           <div>
-            <h1 className="app-title">Explorador de Expedientes</h1>
-            <p className="app-subtitle">Inspección de Lotes Bancarios y Planillas · ORG_LIQ</p>
+            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 800, letterSpacing: '-0.02em', color: '#14263C' }}>
+              Explorador de Expedientes
+            </h1>
+            <div style={{ marginTop: '2px', fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', color: '#8797A8', textTransform: 'uppercase' }}>
+              INSPECCIÓN DE LOTES BANCARIOS Y PLANILLAS · ORG_LIQ
+            </div>
           </div>
         </div>
 
         {/* Accesos rápidos */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: 'var(--text-muted)' }}>Frecuentes:</span>
+          <span style={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.08em', color: '#8797A8' }}>FRECUENTES:</span>
           {quickExpedientes.map((exp) => (
             <button
               key={exp}
+              type="button"
               onClick={() => { setExpedienteId(exp); handleSearch(undefined, exp); }}
-              className={`btn btn-sm ${expedienteId === exp && data ? 'btn-primary' : 'btn-ghost'}`}
-              style={{ fontFamily: 'var(--font-mono)' }}
+              style={{
+                padding: '4px 10px',
+                borderRadius: '6px',
+                border: '1px solid',
+                borderColor: expedienteId === exp && data ? '#1E5C99' : '#E1E7EE',
+                background: expedienteId === exp && data ? '#EDF4FB' : '#ffffff',
+                color: expedienteId === exp && data ? '#1E5C99' : '#3D4F66',
+                fontFamily: "'IBM Plex Mono', monospace",
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
             >
               #{exp}
             </button>
@@ -77,30 +89,29 @@ export const ExpedientesExplorerView: React.FC = () => {
         </div>
       </header>
 
-      {/* ── Search Form ── */}
-      <section className="search-panel">
-        <form onSubmit={(e) => handleSearch(e)} className="search-box">
-          <div className="field">
-            <label className="field-label">Número de Expediente</label>
-            <div className="input-affix">
-              <FolderGit2 size={15} />
-              <input
-                type="text"
-                value={expedienteId}
-                onChange={(e) => setExpedienteId(e.target.value)}
-                placeholder="Ej. 7440"
-                className="input-field mono"
-                required
-              />
-            </div>
+      {/* ── Main View Area ── */}
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '20px 28px 32px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+        {/* ── Search Form Panel ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 160px auto', gap: '14px', alignItems: 'end', padding: '16px', background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#6B7C90' }}>NÚMERO DE EXPEDIENTE</label>
+            <input
+              type="text"
+              value={expedienteId}
+              onChange={(e) => setExpedienteId(e.target.value)}
+              placeholder="Ej. 7440"
+              style={{ height: '38px', padding: '0 11px', fontSize: '13.5px', fontFamily: "'IBM Plex Mono', monospace", color: '#14263C', background: '#ffffff', border: '1px solid #E1E7EE', borderRadius: '8px', outline: 'none' }}
+              required
+            />
           </div>
 
-          <div className="field">
-            <label className="field-label">Ejercicio Fiscal</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#6B7C90' }}>EJERCICIO FISCAL</label>
             <select
               value={anho}
               onChange={(e) => setAnho(e.target.value)}
-              className="input-field"
+              style={{ height: '38px', padding: '0 10px', fontSize: '13.5px', fontFamily: "'IBM Plex Mono', monospace", color: '#14263C', background: '#ffffff', border: '1px solid #E1E7EE', borderRadius: '8px', outline: 'none', cursor: 'pointer' }}
             >
               <option value="2024">2024</option>
               <option value="2023">2023</option>
@@ -110,130 +121,167 @@ export const ExpedientesExplorerView: React.FC = () => {
           </div>
 
           <button
-            type="submit"
+            type="button"
+            onClick={(e) => handleSearch(e)}
             disabled={loading}
-            className="btn btn-primary"
-            style={{ height: '44px' }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              height: '38px',
+              padding: '0 20px',
+              border: 0,
+              borderRadius: '8px',
+              background: '#1E5C99',
+              color: '#ffffff',
+              fontSize: '13px',
+              fontWeight: 700,
+              cursor: 'pointer'
+            }}
           >
-            {loading ? (
-              <>
-                <Loader2 size={16} className="spinner" />
-                Buscando...
-              </>
-            ) : (
-              <>
-                <Search size={16} />
-                Buscar Expediente
-              </>
-            )}
+            {loading ? <Loader2 size={15} className="spinner" /> : <Search size={15} />}
+            Buscar expediente
           </button>
-        </form>
-      </section>
-
-      {/* ── Error Notification ── */}
-      {error && (
-        <div style={{ padding: '16px', background: 'var(--danger-soft)', border: '1px solid var(--danger-border)', borderRadius: 'var(--r-md)', color: 'var(--danger)', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <AlertCircle size={18} />
-          <span style={{ fontWeight: 600 }}>{error}</span>
         </div>
-      )}
 
-      {/* ── Results Area ── */}
-      {data && (
-        <div className="results-area">
-          {/* KPI Strip */}
-          <div className="kpi-strip">
-            <div className="kpi-item">
-              <span className="kpi-number" style={{ color: 'var(--brand)', fontFamily: 'var(--font-mono)' }}>#{data.expediente_id}</span>
-              <span className="kpi-label">Expediente ID</span>
-            </div>
-            <div className="kpi-divider"></div>
-            <div className="kpi-item">
-              <span className="kpi-number">{data.lotes?.length || 0}</span>
-              <span className="kpi-label">Lotes Asociados</span>
-            </div>
-            <div className="kpi-divider"></div>
-            <div className="kpi-item">
-              <span className="kpi-number" style={{ color: 'var(--success)' }}>{data.resumen?.total_conciliadas || 0}</span>
-              <span className="kpi-label">Planillas Conciliadas (BD)</span>
-            </div>
-            <div className="kpi-divider"></div>
-            <div className="kpi-item">
-              <span className="kpi-number" style={{ color: 'var(--warning)' }}>{data.resumen?.total_pendientes || 0}</span>
-              <span className="kpi-label">Pendientes Físicas (TXT)</span>
-            </div>
+        {/* ── Error Notification ── */}
+        {error && (
+          <div style={{ padding: '14px 16px', background: '#FBEDEA', border: '1px solid #F3C4BA', borderRadius: '10px', color: '#C0492F', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <AlertCircle size={18} />
+            <span style={{ fontWeight: 600, fontSize: '13px' }}>{error}</span>
           </div>
+        )}
 
-          {/* Tabla de Lotes del Expediente */}
-          <section className="table-section">
-            <div className="table-header-custom" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface-1)' }}>
-              <div>
-                <h4 style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)' }}>
-                  Desglose de Lotes del Expediente #{data.expediente_id}
-                </h4>
-                <p style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
-                  Lotes bancarios registrados en ORG_LIQ.LOTE para el ejercicio {anho}
-                </p>
+        {/* ── Results Area ── */}
+        {data && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            
+            {/* 4 KPI Cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '12px' }}>
+              <div style={{ padding: '15px 16px', background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px' }}>
+                <div style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#8797A8' }}>EXPEDIENTE ID</div>
+                <div style={{ marginTop: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '27px', fontWeight: 600, color: '#1E5C99' }}>#{data.expediente_id}</div>
+                <div style={{ marginTop: '5px', fontSize: '11.5px', fontWeight: 600, color: '#6B7C90' }}>Ejercicio {anho}</div>
               </div>
 
-              <button
-                onClick={() => setSelectedModalExpId(data.expediente_id)}
-                className="btn btn-primary btn-sm"
-              >
-                <Eye size={14} />
-                Ver Planillas al Detalle
-              </button>
+              <div style={{ padding: '15px 16px', background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px' }}>
+                <div style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#8797A8' }}>LOTES ASOCIADOS</div>
+                <div style={{ marginTop: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '27px', fontWeight: 600, color: '#14263C' }}>{data.lotes?.length || 0}</div>
+                <div style={{ marginTop: '5px', fontSize: '11.5px', fontWeight: 600, color: '#6B7C90' }}>Lotes registrados en BD</div>
+              </div>
+
+              <div style={{ padding: '15px 16px', background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px' }}>
+                <div style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#8797A8' }}>CONCILIADAS (BD)</div>
+                <div style={{ marginTop: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '27px', fontWeight: 600, color: '#2E7D4F' }}>{data.resumen?.total_conciliadas || 0}</div>
+                <div style={{ marginTop: '5px', fontSize: '11.5px', fontWeight: 600, color: '#6B7C90' }}>Planillas autorizadas</div>
+              </div>
+
+              <div style={{ padding: '15px 16px', background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px' }}>
+                <div style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#8797A8' }}>PENDIENTES FÍSICAS</div>
+                <div style={{ marginTop: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '27px', fontWeight: 600, color: '#E5A32B' }}>{data.resumen?.total_pendientes || 0}</div>
+                <div style={{ marginTop: '5px', fontSize: '11.5px', fontWeight: 600, color: '#6B7C90' }}>Archivos TXT restantes</div>
+              </div>
             </div>
 
-            <div className="table-container">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Lote ID</th>
-                    <th>Secuencia (LOTE_SEQ)</th>
-                    <th>Banco / Agencia</th>
-                    <th>Fecha Recaudación</th>
-                    <th>Total Declaradas</th>
-                    <th>Conciliadas (BD)</th>
-                    <th>Pendientes (TXT)</th>
-                    <th>Estado Lote</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.lotes?.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
-                        No se encontraron lotes para este expediente en el año seleccionado.
-                      </td>
-                    </tr>
-                  ) : (
-                    data.lotes?.map((lote: any, i: number) => (
-                      <tr key={i}>
-                        <td style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{lote.LOTE_ID}</td>
-                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{lote.LOTE_SEQ}</td>
-                        <td>
-                          <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{lote.INFN_CODIGO}</span> - {lote.AGENCIA_CODIGO}
-                        </td>
-                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{lote.FECHA_RECAUDACION}</td>
-                        <td style={{ fontWeight: 700 }}>{lote.TOTAL_PLN}</td>
-                        <td style={{ fontWeight: 700, color: 'var(--success)' }}>{lote.conciliadas}</td>
-                        <td style={{ fontWeight: 700, color: 'var(--warning)' }}>{lote.pendientes}</td>
-                        <td>
-                          <span className={`badge ${lote.ESTADO === 'P' ? 'badge-warning' : 'badge-success'}`}>
-                            {lote.ESTADO === 'P' ? 'Pendiente' : lote.ESTADO}
-                          </span>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </div>
-      )}
+            {/* Tabla de Lotes */}
+            <div style={{ background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px', overflow: 'hidden' }}>
+              
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid #EDF1F5' }}>
+                <div>
+                  <div style={{ fontSize: '13.5px', fontWeight: 800, color: '#14263C' }}>Desglose de Lotes del Expediente #{data.expediente_id}</div>
+                  <div style={{ fontSize: '11.5px', color: '#8797A8', marginTop: '2px' }}>Registrados en ORG_LIQ.LOTE para el ejercicio fiscal {anho}</div>
+                </div>
 
-      {/* Modal */}
+                <button
+                  type="button"
+                  onClick={() => setSelectedModalExpId(data.expediente_id)}
+                  style={{ display: 'flex', alignItems: 'center', gap: '7px', height: '32px', padding: '0 12px', border: 0, borderRadius: '7px', background: '#1E5C99', color: '#ffffff', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  <Eye size={14} />
+                  Ver planillas al detalle
+                </button>
+              </div>
+
+              {/* Header de columnas */}
+              <div style={{ display: 'grid', gridTemplateColumns: '100px 100px 140px 140px 110px 110px 110px 100px', alignItems: 'center', gap: '12px', padding: '10px 16px', background: '#FAFCFE', borderBottom: '1px solid #EDF1F5', fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.09em', color: '#8797A8' }}>
+                <span>LOTE ID</span>
+                <span>SECUENCIA</span>
+                <span>BANCO / AGENCIA</span>
+                <span>FECHA RECAUDACIÓN</span>
+                <span style={{ textAlign: 'right' }}>DECLARADAS</span>
+                <span style={{ textAlign: 'right' }}>CONCILIADAS</span>
+                <span style={{ textAlign: 'right' }}>PENDIENTES</span>
+                <span style={{ textAlign: 'right' }}>ESTADO</span>
+              </div>
+
+              {/* Filas */}
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {data.lotes?.map((lote: any, i: number) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '100px 100px 140px 140px 110px 110px 110px 100px',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '11px 16px',
+                      borderBottom: '1px solid #F1F4F8',
+                      transition: 'background 110ms'
+                    }}
+                  >
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '13px', fontWeight: 700, color: '#14263C' }}>
+                      {lote.LOTE_ID}
+                    </span>
+
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px', color: '#8797A8' }}>
+                      {lote.LOTE_SEQ}
+                    </span>
+
+                    <span style={{ fontSize: '12.5px', color: '#14263C', fontWeight: 600 }}>
+                      {lote.INFN_CODIGO} - {lote.AGENCIA_CODIGO}
+                    </span>
+
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px', color: '#6B7C90' }}>
+                      {lote.FECHA_RECAUDACION}
+                    </span>
+
+                    <span style={{ textAlign: 'right', fontFamily: "'IBM Plex Mono', monospace", fontSize: '12.5px', fontWeight: 600, color: '#14263C' }}>
+                      {lote.TOTAL_PLN}
+                    </span>
+
+                    <span style={{ textAlign: 'right', fontFamily: "'IBM Plex Mono', monospace", fontSize: '12.5px', fontWeight: 600, color: '#2E7D4F' }}>
+                      {lote.conciliadas}
+                    </span>
+
+                    <span style={{ textAlign: 'right', fontFamily: "'IBM Plex Mono', monospace", fontSize: '12.5px', fontWeight: 600, color: '#E5A32B' }}>
+                      {lote.pendientes}
+                    </span>
+
+                    <span style={{ justifySelf: 'end' }}>
+                      <span style={{
+                        display: 'inline-flex',
+                        padding: '2px 8px',
+                        borderRadius: '999px',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        background: lote.ESTADO === 'P' ? '#FDF4E3' : '#E9F6EE',
+                        color: lote.ESTADO === 'P' ? '#9A6A12' : '#2E7D4F'
+                      }}>
+                        {lote.ESTADO === 'P' ? 'Pendiente' : lote.ESTADO}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+          </div>
+        )}
+
+      </div>
+
+      {/* Modal Detalle */}
       {selectedModalExpId && (
         <ExpedienteDetailModal
           expedienteId={selectedModalExpId}

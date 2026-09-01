@@ -410,30 +410,140 @@ function OrquestadorPageInner() {
         </div>
       )}
 
+      {/* ── Empty State cuando no hay lote cargado ── */}
+      {planillas.length === 0 && !loading && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '18px', marginTop: '16px', padding: '84px 24px', background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px' }}>
+          <div style={{ position: 'relative', width: '92px', height: '92px', opacity: 0.9 }}>
+            <div style={{ position: 'absolute', inset: 0, clipPath: 'polygon(0% 0%, 30% 0%, 56% 45%, 26% 45%)', background: '#CDE7E4' }} />
+            <div style={{ position: 'absolute', inset: 0, clipPath: 'polygon(100% 0%, 70% 0%, 44% 45%, 74% 45%)', background: '#D9EEEA' }} />
+            <div style={{ position: 'absolute', inset: 0, clipPath: 'polygon(26% 55%, 56% 55%, 30% 100%, 0% 100%)', background: '#DCEBC4' }} />
+            <div style={{ position: 'absolute', inset: 0, clipPath: 'polygon(74% 55%, 44% 55%, 70% 100%, 100% 100%)', background: '#E6F2D4' }} />
+            <div style={{ position: 'absolute', left: '50%', top: '50%', width: '26px', height: '26px', margin: '-13px 0 0 -13px', transform: 'rotate(45deg)', background: '#C8D9EA' }} />
+          </div>
+          <div style={{ textAlign: 'center', maxWidth: '420px' }}>
+            <div style={{ fontSize: '16px', fontWeight: 800, color: '#14263C' }}>Sin lote cargado</div>
+            <p style={{ margin: '7px 0 0', fontSize: '13.5px', lineHeight: 1.6, color: '#6B7C90' }}>
+              Defina la fecha de recaudación, el banco y el estado del lote, luego ejecute la búsqueda para traer las planillas del expediente.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ── Results ── */}
       {planillas.length > 0 && (
         <div className="results-area">
 
-          {/* KPI strip */}
-          <div className="kpi-strip">
-            <div className="kpi-item">
-              <span className="kpi-number">{planillasFiltradas.length}</span>
-              <span className="kpi-label">Planillas</span>
+          {/* ── 4 KPI Metric Cards Grid ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '12px', marginBottom: '14px' }}>
+            <div style={{ padding: '15px 16px', background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px' }}>
+              <div style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#8797A8' }}>PLANILLAS</div>
+              <div style={{ marginTop: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '27px', fontWeight: 600, letterSpacing: '-0.02em', color: '#14263C' }}>
+                {planillasFiltradas.length}
+              </div>
+              <div style={{ marginTop: '5px', fontSize: '11.5px', fontWeight: 600, color: '#6B7C90' }}>
+                {planillasFiltradas.filter(p => !successStates[p.NRO_PLANILLA_FALTANTE]).length} pendientes de resolución
+              </div>
             </div>
-            <div className="kpi-divider" />
-            <div className="kpi-item">
-              <span className="kpi-number">{expedientesUnicos.length}</span>
-              <span className="kpi-label">Expedientes</span>
+
+            <div style={{ padding: '15px 16px', background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px' }}>
+              <div style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#8797A8' }}>EXPEDIENTES</div>
+              <div style={{ marginTop: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '27px', fontWeight: 600, letterSpacing: '-0.02em', color: '#14263C' }}>
+                {expedientesUnicos[0] || planillas[0]?.EXPEDIENTE || '1'}
+              </div>
+              <div style={{ marginTop: '5px', fontSize: '11.5px', fontWeight: 600, color: '#6B7C90' }}>
+                Lote {planillas[0]?.LOTE_ID || '1'} · Banco {banco}
+              </div>
             </div>
-            <div className="kpi-divider" />
-            <div className="kpi-item">
-              <span className="kpi-number">{Object.keys(formasCount).length}</span>
-              <span className="kpi-label">Formas</span>
+
+            <div style={{ padding: '15px 16px', background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px' }}>
+              <div style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#8797A8' }}>FORMAS DISTINTAS</div>
+              <div style={{ marginTop: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '27px', fontWeight: 600, letterSpacing: '-0.02em', color: '#14263C' }}>
+                {Object.keys(formasCount).length}
+              </div>
+              <div style={{ marginTop: '5px', fontSize: '11.5px', fontWeight: 600, color: '#6B7C90' }}>
+                Reglas activas del catálogo
+              </div>
             </div>
-            <div className="kpi-divider" />
-            <div className="kpi-item">
-              <span className="kpi-number kpi-money">Bs {totalMonto.toLocaleString('es-VE', { minimumFractionDigits: 2 })}</span>
-              <span className="kpi-label">Monto Total</span>
+
+            <div style={{ padding: '15px 16px', background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px' }}>
+              <div style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#8797A8' }}>MONTO TOTAL</div>
+              <div style={{ marginTop: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '27px', fontWeight: 600, letterSpacing: '-0.02em', color: '#14263C' }}>
+                {totalMonto.toLocaleString('es-VE', { minimumFractionDigits: 2 })}
+              </div>
+              <div style={{ marginTop: '5px', fontSize: '11.5px', fontWeight: 600, color: '#6B7C90' }}>
+                Bolívares · sin ajustes
+              </div>
+            </div>
+          </div>
+
+          {/* ── Analytics & Charts Grid ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.55fr) minmax(0, 1fr)', gap: '12px', marginBottom: '14px' }}>
+            {/* Gráfico Barras: Monto por Forma */}
+            <div style={{ background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '14px 16px', borderBottom: '1px solid #EDF1F5' }}>
+                <div style={{ fontSize: '13.5px', fontWeight: 800, color: '#14263C' }}>Monto por forma tributaria</div>
+                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', color: '#8797A8' }}>Bs · Lote activo</div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '18px 16px' }}>
+                {Object.entries(formasCount).slice(0, 4).map(([formaCode, count], idx) => {
+                  const formaMonto = planillas.filter(p => p.FORMA === formaCode).reduce((acc, p) => acc + (p.MONTO_EFECTIVO || 0), 0);
+                  const pct = totalMonto > 0 ? Math.min(100, Math.round((formaMonto / totalMonto) * 100)) : 25;
+                  const barColors = ['#1E5C99', '#2C7BC0', '#3FB4A8', '#8CC63F'];
+                  return (
+                    <div key={formaCode} style={{ display: 'grid', gridTemplateColumns: '62px minmax(0, 1fr) 110px', alignItems: 'center', gap: '12px' }}>
+                      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px', fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: '#3D4F66' }}>
+                        {formaCode}
+                      </span>
+                      <span style={{ display: 'block', height: '20px', borderRadius: '3px', background: '#F1F5F9', overflow: 'hidden' }}>
+                        <span style={{ display: 'block', height: '100%', borderRadius: '3px', width: `${pct}%`, background: barColors[idx % barColors.length], transition: 'width 0.4s ease' }} />
+                      </span>
+                      <span style={{ textAlign: 'right', fontFamily: "'IBM Plex Mono', monospace", fontSize: '12.5px', fontWeight: 500, color: '#14263C' }}>
+                        {formaMonto.toLocaleString('es-VE', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Gráfico Circular: Estado de Resolución */}
+            <div style={{ background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px' }}>
+              <div style={{ padding: '14px 16px', borderBottom: '1px solid #EDF1F5', fontSize: '13.5px', fontWeight: 800, color: '#14263C' }}>
+                Estado de resolución
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '18px 16px' }}>
+                <div style={{ position: 'relative', width: '108px', height: '108px', flex: 'none', borderRadius: '50%', background: 'conic-gradient(#E5A32B 0deg 240deg, #3FB4A8 240deg 320deg, #2E7D4F 320deg 360deg)' }}>
+                  <div style={{ position: 'absolute', inset: '20px', borderRadius: '50%', background: '#ffffff', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '18px', fontWeight: 700, color: '#14263C' }}>
+                      {planillasFiltradas.length}
+                    </span>
+                    <span style={{ fontSize: '9px', fontWeight: 800, letterSpacing: '0.1em', color: '#8797A8' }}>TOTAL</span>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ width: '9px', height: '9px', borderRadius: '2px', background: '#E5A32B', flex: 'none' }} />
+                    <span style={{ flex: 1, fontSize: '12.5px', fontWeight: 600, color: '#3D4F66' }}>Pendiente</span>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '12.5px', color: '#14263C' }}>
+                      {planillasFiltradas.filter(p => !mappingStates[p.NRO_PLANILLA_FALTANTE] && !successStates[p.NRO_PLANILLA_FALTANTE]).length}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ width: '9px', height: '9px', borderRadius: '2px', background: '#3FB4A8', flex: 'none' }} />
+                    <span style={{ flex: 1, fontSize: '12.5px', fontWeight: 600, color: '#3D4F66' }}>Mapeada</span>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '12.5px', color: '#14263C' }}>
+                      {planillasFiltradas.filter(p => mappingStates[p.NRO_PLANILLA_FALTANTE]?.status === 'success' && !successStates[p.NRO_PLANILLA_FALTANTE]).length}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ width: '9px', height: '9px', borderRadius: '2px', background: '#2E7D4F', flex: 'none' }} />
+                    <span style={{ flex: 1, fontSize: '12.5px', fontWeight: 600, color: '#3D4F66' }}>Conciliada</span>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '12.5px', color: '#14263C' }}>
+                      {planillasFiltradas.filter(p => successStates[p.NRO_PLANILLA_FALTANTE]).length}
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 

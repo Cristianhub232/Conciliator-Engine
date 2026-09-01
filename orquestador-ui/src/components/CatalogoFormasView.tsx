@@ -423,12 +423,16 @@ export const CatalogoFormasView: React.FC = () => {
       {/* ── Topbar ── */}
       <header className="app-topbar">
         <div className="app-topbar-left">
-          <div className="app-logo-mark" style={{ background: '#0284c7' }}>
-            <BookOpen size={18} strokeWidth={2.5} />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '34px', height: '34px', flex: 'none', borderRadius: '9px', background: '#EEF6E4', color: '#5FA83C' }}>
+            <BookOpen size={18} strokeWidth={2.2} />
           </div>
           <div>
-            <h1 className="app-title">Catálogo y Reglas de Formas Tributarias</h1>
-            <p className="app-subtitle">Motor de Mapeo Presupuestario, Prorrateos y Resolución ONT (Microservicio 10.46.0.189)</p>
+            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 800, letterSpacing: '-0.02em', color: '#14263C' }}>
+              Catálogo y Reglas de Formas
+            </h1>
+            <div style={{ marginTop: '2px', fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', color: '#8797A8', textTransform: 'uppercase' }}>
+              MAPEO PRESUPUESTARIO, PRORRATEOS Y RESOLUCIÓN ONT
+            </div>
           </div>
         </div>
 
@@ -437,25 +441,26 @@ export const CatalogoFormasView: React.FC = () => {
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            padding: '6px 14px',
-            background: 'var(--surface-1)',
-            border: '1px solid var(--border-default)',
-            borderRadius: 'var(--r-full)',
-            fontSize: 'var(--fs-xs)',
-            fontWeight: 600
+            height: '36px',
+            padding: '0 12px',
+            background: '#ffffff',
+            border: '1px solid #E1E7EE',
+            borderRadius: '8px',
+            fontFamily: "'IBM Plex Mono', monospace",
+            fontSize: '11.5px',
+            color: '#6B7C90'
           }}>
-            <span className="status-dot"></span>
-            <span>API 10.46.0.189:3000</span>
-            <span className="badge badge-info">{formas.length} Formas</span>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#34A853', display: 'inline-block' }}></span>
+            <span>10.46.0.189:3000</span>
           </div>
 
           <button 
             type="button" 
             onClick={loadCatalogos} 
-            className="btn btn-ghost" 
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '36px', height: '36px', border: '1px solid #E1E7EE', borderRadius: '8px', background: '#ffffff', cursor: 'pointer', color: '#6B7C90' }}
             title="Recargar Catálogo"
           >
-            <RefreshCw size={16} className={loading ? 'spinner' : ''} />
+            <RefreshCw size={15} className={loading ? 'spinner' : ''} />
           </button>
 
           <button
@@ -465,113 +470,179 @@ export const CatalogoFormasView: React.FC = () => {
               if (partidas.length > 0) setCreateCodPartida(partidas[0].COD_PARTIDA);
               setIsCreateModalOpen(true);
             }}
-            className="btn btn-primary"
-            style={{ background: '#0284c7' }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '7px',
+              height: '36px',
+              padding: '0 14px',
+              border: 0,
+              borderRadius: '8px',
+              background: '#1E5C99',
+              color: '#ffffff',
+              fontSize: '13px',
+              fontWeight: 700,
+              cursor: 'pointer'
+            }}
           >
-            <Plus size={16} />
-            Nueva Forma
+            <Plus size={15} strokeWidth={2.2} />
+            Nueva forma
           </button>
         </div>
       </header>
 
+      {/* ── Sub-Navigation Tabs con borde inferior plano ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '22px', padding: '0 28px', background: '#ffffff', borderBottom: '1px solid #E6EBF1', marginBottom: '20px' }}>
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('formas')}
+          style={{
+            padding: '12px 2px',
+            border: 0,
+            borderBottom: activeSubTab === 'formas' ? '2px solid #1E5C99' : '2px solid transparent',
+            background: 'transparent',
+            fontSize: '13px',
+            fontWeight: activeSubTab === 'formas' ? 800 : 600,
+            color: activeSubTab === 'formas' ? '#14263C' : '#8797A8',
+            cursor: 'pointer'
+          }}
+        >
+          Formas tributarias ({formas.length})
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('simulador')}
+          style={{
+            padding: '12px 2px',
+            border: 0,
+            borderBottom: activeSubTab === 'simulador' ? '2px solid #1E5C99' : '2px solid transparent',
+            background: 'transparent',
+            fontSize: '13px',
+            fontWeight: activeSubTab === 'simulador' ? 800 : 600,
+            color: activeSubTab === 'simulador' ? '#14263C' : '#8797A8',
+            cursor: 'pointer'
+          }}
+        >
+          Simulador de imputación
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('partidas')}
+          style={{
+            padding: '12px 2px',
+            border: 0,
+            borderBottom: activeSubTab === 'partidas' ? '2px solid #1E5C99' : '2px solid transparent',
+            background: 'transparent',
+            fontSize: '13px',
+            fontWeight: activeSubTab === 'partidas' ? 800 : 600,
+            color: activeSubTab === 'partidas' ? '#14263C' : '#8797A8',
+            cursor: 'pointer'
+          }}
+        >
+          Catálogo de partidas ({partidas.length})
+        </button>
+      </div>
+
       {/* ── Toast de Notificación ── */}
       {toastMessage && (
         <div style={{ 
+          margin: '0 28px 16px',
           padding: '12px 18px', 
           background: toastMessage.type === 'success' ? 'var(--success-soft)' : 'var(--danger-soft)', 
           border: `1px solid ${toastMessage.type === 'success' ? 'var(--success-border)' : 'var(--danger-border)'}`, 
-          borderRadius: 'var(--r-md)', 
+          borderRadius: '10px', 
           color: toastMessage.type === 'success' ? 'var(--success)' : 'var(--danger)', 
-          marginBottom: '16px', 
           display: 'flex', 
           alignItems: 'center', 
           gap: '10px',
           animation: 'fadeIn 0.2s ease'
         }}>
           {toastMessage.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
-          <span style={{ fontWeight: 600, fontSize: 'var(--fs-sm)' }}>{toastMessage.text}</span>
+          <span style={{ fontWeight: 600, fontSize: '13px' }}>{toastMessage.text}</span>
         </div>
       )}
 
       {/* ── Error Banner ── */}
       {error && (
         <div style={{ 
+          margin: '0 28px 20px',
           padding: '14px 18px', 
-          background: 'var(--danger-soft)', 
-          border: '1px solid var(--danger-border)', 
-          borderRadius: 'var(--r-md)', 
-          color: 'var(--danger)', 
-          marginBottom: '20px', 
+          background: '#FBEDEA', 
+          border: '1px solid #F3C4BA', 
+          borderRadius: '10px', 
+          color: '#C0492F', 
           display: 'flex', 
           alignItems: 'center', 
           gap: '10px' 
         }}>
           <AlertCircle size={18} />
-          <span style={{ fontWeight: 600, fontSize: 'var(--fs-sm)' }}>{error}</span>
+          <span style={{ fontWeight: 600, fontSize: '13px' }}>{error}</span>
         </div>
       )}
-
-      {/* ── Sub-Navigation Tabs ── */}
-      <div className="tab-nav" style={{ marginBottom: '20px' }}>
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('formas')}
-          className={`tab-nav-btn ${activeSubTab === 'formas' ? 'active' : ''}`}
-        >
-          <Layers size={16} />
-          <span>Formas Tributarias ({formas.length})</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('simulador')}
-          className={`tab-nav-btn ${activeSubTab === 'simulador' ? 'active' : ''}`}
-        >
-          <Calculator size={16} />
-          <span>Simulador de Imputación</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('partidas')}
-          className={`tab-nav-btn ${activeSubTab === 'partidas' ? 'active' : ''}`}
-        >
-          <ListOrdered size={16} />
-          <span>Catálogo de Partidas ({partidas.length})</span>
-        </button>
-      </div>
 
       {/* ══════════════════════════════════════════════════════════════════════
           TAB 1: EXPLORADOR Y GESTIÓN DE FORMAS
       ══════════════════════════════════════════════════════════════════════ */}
       {activeSubTab === 'formas' && (
-        <div className="stack" style={{ gap: '20px' }}>
-          {/* KPI Strip de Categorías */}
-          <div className="kpi-strip">
-            <div className="kpi-item" style={{ cursor: 'pointer' }} onClick={() => setSelectedTipo('DIRECTA')}>
-              <div className="kpi-label">Asignación Directa</div>
-              <div className="kpi-number" style={{ color: 'var(--brand)' }}>{tiposCounts.DIRECTA}</div>
-              <div className="kpi-hint">1 Forma $\rightarrow$ 1 Partida fija</div>
+        <div style={{ padding: '0 28px 32px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          
+          {/* ── Barra de Distribución Multi-segmento ── */}
+          <div style={{ background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px', padding: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px' }}>
+              <div style={{ fontSize: '13.5px', fontWeight: 800, color: '#14263C' }}>Distribución por tipo de resolución</div>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11.5px', color: '#8797A8' }}>{formas.length} formas activas</div>
             </div>
-            <div className="kpi-item" style={{ cursor: 'pointer' }} onClick={() => setSelectedTipo('BIYECTIVA')}>
-              <div className="kpi-label">Biyectivas</div>
-              <div className="kpi-number" style={{ color: 'var(--success)' }}>{tiposCounts.BIYECTIVA}</div>
-              <div className="kpi-hint">Monopartida exclusiva</div>
+            
+            <div style={{ display: 'flex', height: '22px', marginTop: '14px', borderRadius: '4px', overflow: 'hidden', gap: '2px' }}>
+              <div style={{ width: `${(tiposCounts.DIRECTA / (formas.length || 1)) * 100}%`, background: '#1E5C99' }} title={`Directa (${tiposCounts.DIRECTA})`} />
+              <div style={{ width: `${(tiposCounts.BIYECTIVA / (formas.length || 1)) * 100}%`, background: '#3FB4A8' }} title={`Biyectiva (${tiposCounts.BIYECTIVA})`} />
+              <div style={{ width: `${(tiposCounts.ANCLADA / (formas.length || 1)) * 100}%`, background: '#8CC63F' }} title={`Anclada (${tiposCounts.ANCLADA})`} />
+              <div style={{ width: `${(tiposCounts.PRORRATEO / (formas.length || 1)) * 100}%`, background: '#E5A32B' }} title={`Prorrateo (${tiposCounts.PRORRATEO})`} />
+              <div style={{ width: `${(tiposCounts.RIF / (formas.length || 1)) * 100}%`, background: '#7A5AA8' }} title={`Por RIF (${tiposCounts.RIF})`} />
             </div>
-            <div className="kpi-item" style={{ cursor: 'pointer' }} onClick={() => setSelectedTipo('ANCLADA')}>
-              <div className="kpi-label">Ancladas</div>
-              <div className="kpi-number" style={{ color: 'var(--warning)' }}>{tiposCounts.ANCLADA}</div>
-              <div className="kpi-hint">Partida oficial fijada ONT</div>
-            </div>
-            <div className="kpi-item" style={{ cursor: 'pointer' }} onClick={() => setSelectedTipo('PRORRATEO')}>
-              <div className="kpi-label">Prorrateo Aduanas</div>
-              <div className="kpi-number" style={{ color: '#9333ea' }}>{tiposCounts.PRORRATEO}</div>
-              <div className="kpi-hint">52% / 42% / 6% al céntimo</div>
-            </div>
-            <div className="kpi-item" style={{ cursor: 'pointer' }} onClick={() => setSelectedTipo('RIF')}>
-              <div className="kpi-label">Por RIF Contribuyente</div>
-              <div className="kpi-number" style={{ color: '#ea580c' }}>{tiposCounts.RIF}</div>
-              <div className="kpi-hint">Natural vs Jurídico</div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: '14px', marginTop: '16px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer' }} onClick={() => setSelectedTipo('DIRECTA')}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', fontWeight: 800, letterSpacing: '0.08em', color: '#6B7C90' }}>
+                  <span style={{ width: '9px', height: '9px', borderRadius: '2px', background: '#1E5C99' }}></span>DIRECTA
+                </span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '20px', fontWeight: 600, color: '#14263C' }}>{tiposCounts.DIRECTA}</span>
+                <span style={{ fontSize: '11.5px', color: '#8797A8' }}>1 forma → 1 partida fija</span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer' }} onClick={() => setSelectedTipo('BIYECTIVA')}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', fontWeight: 800, letterSpacing: '0.08em', color: '#6B7C90' }}>
+                  <span style={{ width: '9px', height: '9px', borderRadius: '2px', background: '#3FB4A8' }}></span>BIYECTIVA
+                </span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '20px', fontWeight: 600, color: '#14263C' }}>{tiposCounts.BIYECTIVA}</span>
+                <span style={{ fontSize: '11.5px', color: '#8797A8' }}>Monopartida exclusiva</span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer' }} onClick={() => setSelectedTipo('ANCLADA')}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', fontWeight: 800, letterSpacing: '0.08em', color: '#6B7C90' }}>
+                  <span style={{ width: '9px', height: '9px', borderRadius: '2px', background: '#8CC63F' }}></span>ANCLADA
+                </span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '20px', fontWeight: 600, color: '#14263C' }}>{tiposCounts.ANCLADA}</span>
+                <span style={{ fontSize: '11.5px', color: '#8797A8' }}>Partida oficial fijada ONT</span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer' }} onClick={() => setSelectedTipo('PRORRATEO')}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', fontWeight: 800, letterSpacing: '0.08em', color: '#6B7C90' }}>
+                  <span style={{ width: '9px', height: '9px', borderRadius: '2px', background: '#E5A32B' }}></span>PRORRATEO
+                </span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '20px', fontWeight: 600, color: '#14263C' }}>{tiposCounts.PRORRATEO}</span>
+                <span style={{ fontSize: '11.5px', color: '#8797A8' }}>Aduanas 52 / 42 / 6 %</span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer' }} onClick={() => setSelectedTipo('RIF')}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', fontWeight: 800, letterSpacing: '0.08em', color: '#6B7C90' }}>
+                  <span style={{ width: '9px', height: '9px', borderRadius: '2px', background: '#7A5AA8' }}></span>POR RIF
+                </span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '20px', fontWeight: 600, color: '#14263C' }}>{tiposCounts.RIF}</span>
+                <span style={{ fontSize: '11.5px', color: '#8797A8' }}>Natural vs jurídico</span>
+              </div>
             </div>
           </div>
 

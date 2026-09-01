@@ -1,58 +1,58 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
+
 /* ============================================================================
    Auditoría ONT — Design System
-   Consola de auditoría (SIGECOF). Tema oscuro institucional.
+   Motor Financiero & Orquestador Institucional.
    Tokens -> Base -> Layout -> Componentes -> Utilidades -> Responsive
    ========================================================================== */
 
 /* ---------------------------------------------------------------- 1. TOKENS */
 :root {
-  /* Superficies (escala de elevación) - Modo Claro */
-  --surface-0: #F7F9FB;   /* fondo de la app */
-  --surface-1: #FFFFFF;   /* paneles */
-  --surface-2: #F1F4F7;   /* tarjetas internas / thead */
-  --surface-3: #FBFCFD;   /* hover / estados activos */
+  /* Superficies (escala de elevación) - Modo Claro Institucional */
+  --surface-0: #F6F8FA;   /* fondo de la app */
+  --surface-1: #FFFFFF;   /* paneles y tarjetas */
+  --surface-2: #F8FAFC;   /* tarjetas internas / thead */
+  --surface-3: #F1F5F9;   /* hover / estados activos */
   --surface-inset: #FFFFFF;
 
   /* Bordes (hairlines) */
-  --border-subtle: #E3E8EE;
-  --border-default: #d1d9e5;
-  --border-strong: #bac4d5;
+  --border-subtle: #EDF1F5;
+  --border-default: #E6EBF1;
+  --border-strong: #D5DDE6;
 
   /* Texto */
-  --text-primary: #1F2933;
-  --text-secondary: #4C5773;
-  --text-muted: #64748b; /* Mejor contraste (slate-500) */
+  --text-primary: #14263C;
+  --text-secondary: #3D4F66;
+  --text-muted: #8797A8;
   --text-inverse: #FFFFFF;
 
   /* Marca / acento */
-  --brand: #1d70b8;
-  --brand-hover: #15578f;
-  --brand-active: #0e3d66;
-  --brand-soft: rgba(45, 134, 212, 0.1);
-  --brand-ring: rgba(45, 134, 212, 0.35);
-  --accent: #2D86D4;
+  --brand: #1E5C99;
+  --brand-hover: #123A69;
+  --brand-active: #0B2544;
+  --brand-soft: #EDF4FB;
+  --brand-ring: rgba(30, 92, 153, 0.15);
+  --accent: #2C7BC0;
 
   /* Semánticos */
-  --success: #047857; /* Verde esmeralda oscuro */
-  --success-soft: #f1f5f9; /* Fondo suave slate-100 */
-  --success-border: #cbd5e1; /* Borde suave */
-  --warning: #D98E1C;
-  --warning-soft: #FDF2E2;
-  --warning-border: #f2a733;
-  --danger: #E03E2D;
-  --danger-soft: #fbeae9;
-  --danger-border: #eba49e;
-  --info: #2D86D4;
-  --info-soft: #EAF3FC;
-  --info-border: #8abced;
-  --neutral-soft: #F1F4F7;
-  --neutral-border: #E3E8EE;
+  --success: #2E7D4F;
+  --success-soft: #E9F6EE;
+  --success-border: #C8E6D3;
+  --warning: #E5A32B;
+  --warning-soft: #FDF4E3;
+  --warning-border: #F7DCAD;
+  --danger: #C0492F;
+  --danger-soft: #FBEDEA;
+  --danger-border: #F3C4BA;
+  --info: #1E5C99;
+  --info-soft: #EDF4FB;
+  --info-border: #CCE0F3;
+  --neutral-soft: #F1F5F9;
+  --neutral-border: #E6EBF1;
 
   /* Tipografía */
-  --font-sans: var(--font-inter), "Inter", -apple-system, BlinkMacSystemFont,
-    "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas,
-    "Liberation Mono", monospace;
+  --font-sans: 'Manrope', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 
   --fs-xs: 0.6875rem;   /* 11px  — etiquetas */
   --fs-sm: 0.8125rem;   /* 13px  — texto de tabla */
