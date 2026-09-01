@@ -10,10 +10,7 @@ import {
   EyeOff, 
   Loader2, 
   AlertCircle, 
-  CheckCircle2, 
-  ShieldCheck, 
-  Zap, 
-  Layers
+  ShieldCheck 
 } from 'lucide-react';
 
 export const LoginView: React.FC = () => {
@@ -39,12 +36,6 @@ export const LoginView: React.FC = () => {
       setError(res.message || 'Error al iniciar sesión.');
       setLoading(false);
     }
-  };
-
-  const handleQuickFill = () => {
-    setEmail('admin@sirumatek.com');
-    setPassword('venezuela1');
-    setError(null);
   };
 
   return (
@@ -141,7 +132,7 @@ export const LoginView: React.FC = () => {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@sirumatek.com"
+                  placeholder="usuario@ont.gob.ve"
                   className="input-field mono"
                   style={{ paddingLeft: '38px', height: '42px' }}
                   required
@@ -210,48 +201,6 @@ export const LoginView: React.FC = () => {
               )}
             </button>
           </form>
-
-          {/* Tarjeta de Acceso Rápido de Prueba */}
-          <div style={{
-            marginTop: '24px',
-            padding: '14px 16px',
-            borderRadius: '10px',
-            background: '#f8fafc',
-            border: '1px dashed #cbd5e1',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '12px'
-          }}>
-            <div>
-              <div style={{ fontSize: '11px', fontWeight: 700, color: '#1e293b' }}>
-                👤 Usuario de Prueba:
-              </div>
-              <div style={{ fontSize: '11px', fontFamily: 'monospace', color: '#64748b' }}>
-                admin@sirumatek.com / venezuela1
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={handleQuickFill}
-              style={{
-                fontSize: '11px',
-                fontWeight: 700,
-                color: '#1d70b8',
-                background: '#e0f2fe',
-                border: '1px solid #bae6fd',
-                padding: '6px 10px',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}
-            >
-              <Zap size={13} />
-              Rellenar
-            </button>
-          </div>
         </div>
 
         {/* Pie */}

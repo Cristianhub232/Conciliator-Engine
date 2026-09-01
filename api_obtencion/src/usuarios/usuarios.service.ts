@@ -165,7 +165,7 @@ export class UsuariosService {
       throw new NotFoundException(`Usuario con ID ${id} no encontrado.`);
     }
 
-    if (check.rows[0].email === 'admin@sirumatek.com') {
+    if (check.rows[0].id === 1) {
       throw new BadRequestException('No se puede eliminar el usuario administrador principal del sistema.');
     }
 

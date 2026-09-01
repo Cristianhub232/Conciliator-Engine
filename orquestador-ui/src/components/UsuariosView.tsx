@@ -433,7 +433,7 @@ export const UsuariosView: React.FC = () => {
                           >
                             <Edit size={15} color="var(--brand)" />
                           </button>
-                          {u.email !== 'admin@sirumatek.com' && (
+                          {u.id !== 1 && (
                             <button
                               type="button"
                               onClick={() => handleOpenDelete(u)}

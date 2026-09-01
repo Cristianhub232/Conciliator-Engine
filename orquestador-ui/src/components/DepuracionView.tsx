@@ -274,7 +274,7 @@ export const DepuracionView: React.FC = () => {
         planillas_ids: Array.from(selectedPlanillaIds),
         motivo: authMotivo,
         password_autorizacion: authPassword,
-        usuario_email: usuario?.email || 'admin@sirumatek.com'
+        usuario_email: usuario?.email || 'operador@ont.gob.ve'
       });
 
       showToast(`✅ ${res.data.mensaje}`, 'success');
@@ -930,7 +930,7 @@ export const DepuracionView: React.FC = () => {
                 </div>
                 <div>
                   <span style={{ color: 'var(--text-muted)' }}>Usuario Autorizador:</span>
-                  <div style={{ fontWeight: 700 }}>{usuario?.email || 'admin@sirumatek.com'}</div>
+                  <div style={{ fontWeight: 700 }}>{usuario?.email || 'operador@ont.gob.ve'}</div>
                 </div>
               </div>
 
