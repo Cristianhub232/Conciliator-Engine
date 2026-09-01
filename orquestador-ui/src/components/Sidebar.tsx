@@ -92,12 +92,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Encabezado Logo */}
       <div className="sidebar-header" style={{ display: 'flex', alignItems: 'center', gap: '11px', padding: '18px 18px 16px', borderBottom: '1px solid #EDF1F5', background: '#FFFFFF' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '11px', minWidth: 0, flex: 1 }}>
-          <div style={{ width: '30px', height: '30px', position: 'relative', flex: 'none' }}>
-            <div style={{ position: 'absolute', inset: 0, clipPath: 'polygon(0% 0%, 30% 0%, 56% 45%, 26% 45%)', background: '#3FB4A8' }} />
-            <div style={{ position: 'absolute', inset: 0, clipPath: 'polygon(100% 0%, 70% 0%, 44% 45%, 74% 45%)', background: '#4FC3B4' }} />
-            <div style={{ position: 'absolute', inset: 0, clipPath: 'polygon(26% 55%, 56% 55%, 30% 100%, 0% 100%)', background: '#8CC63F' }} />
-            <div style={{ position: 'absolute', inset: 0, clipPath: 'polygon(74% 55%, 44% 55%, 70% 100%, 100% 100%)', background: '#9BD24A' }} />
-          </div>
+          <img
+            src="/logo-tech-x.png"
+            alt="ONT"
+            style={{ width: '32px', height: '32px', objectFit: 'contain', flex: 'none' }}
+          />
           {!isCollapsed && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
               <span style={{ fontSize: '13.5px', fontWeight: 800, letterSpacing: '-0.01em', color: '#14263C', whiteSpace: 'nowrap' }}>
