@@ -413,13 +413,11 @@ function OrquestadorPageInner() {
       {/* ── Empty State cuando no hay lote cargado ── */}
       {planillas.length === 0 && !loading && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '18px', marginTop: '16px', padding: '84px 24px', background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px' }}>
-          <div style={{ position: 'relative', width: '92px', height: '92px', opacity: 0.9 }}>
-            <div style={{ position: 'absolute', inset: 0, clipPath: 'polygon(0% 0%, 30% 0%, 56% 45%, 26% 45%)', background: '#CDE7E4' }} />
-            <div style={{ position: 'absolute', inset: 0, clipPath: 'polygon(100% 0%, 70% 0%, 44% 45%, 74% 45%)', background: '#D9EEEA' }} />
-            <div style={{ position: 'absolute', inset: 0, clipPath: 'polygon(26% 55%, 56% 55%, 30% 100%, 0% 100%)', background: '#DCEBC4' }} />
-            <div style={{ position: 'absolute', inset: 0, clipPath: 'polygon(74% 55%, 44% 55%, 70% 100%, 100% 100%)', background: '#E6F2D4' }} />
-            <div style={{ position: 'absolute', left: '50%', top: '50%', width: '26px', height: '26px', margin: '-13px 0 0 -13px', transform: 'rotate(45deg)', background: '#C8D9EA' }} />
-          </div>
+          <img
+            src="/logo-tech-x.png"
+            alt="ONT"
+            style={{ width: '84px', height: '84px', objectFit: 'contain', opacity: 0.85 }}
+          />
           <div style={{ textAlign: 'center', maxWidth: '420px' }}>
             <div style={{ fontSize: '16px', fontWeight: 800, color: '#14263C' }}>Sin lote cargado</div>
             <p style={{ margin: '7px 0 0', fontSize: '13.5px', lineHeight: 1.6, color: '#6B7C90' }}>
