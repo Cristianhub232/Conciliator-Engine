@@ -23,7 +23,7 @@ function OrquestadorPageInner() {
 
   const [fecha, setFecha] = useState('2024-04-15');
   const [banco, setBanco] = useState('105');
-  const [estado, setEstado] = useState('HUERFANAS');
+  const [estado, setEstado] = useState('ASIGNADAS');
   const [limit, setLimit] = useState(500);
 
   const [planillas, setPlanillas] = useState<any[]>([]);
@@ -337,8 +337,8 @@ function OrquestadorPageInner() {
           <div className="field">
             <label className="field-label">Estado de Lote</label>
             <select value={estado} onChange={e => setEstado(e.target.value)} className="input-field">
-              <option value="HUERFANAS">Huérfanas</option>
               <option value="ASIGNADAS">Asignadas a Workflow</option>
+              <option value="HUERFANAS">Huérfanas</option>
             </select>
           </div>
           <div className="field">
