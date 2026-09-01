@@ -4,6 +4,7 @@ import { useState, useRef } from 'react';
 import axios from 'axios';
 import { Search, CheckCircle, AlertCircle, Layers, ServerCog, Filter, X, Loader2, Square, AlertTriangle, RefreshCw } from 'lucide-react';
 import { AuthProvider, useAuth } from '../context/AuthContext';
+import { SplashLoader } from '../components/SplashLoader';
 import { LoginView } from '../components/LoginView';
 import { Sidebar, NavTab } from '../components/Sidebar';
 import { TranscriptoresView } from '../components/TranscriptoresView';
@@ -16,6 +17,7 @@ import { ConfiguracionView } from '../components/ConfiguracionView';
 
 function OrquestadorPageInner() {
   const { isAuthenticated, loading: authLoading } = useAuth();
+  const [showSplash, setShowSplash] = useState(true);
   const [activeTab, setActiveTab] = useState<NavTab>('conciliacion');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
@@ -260,6 +262,11 @@ function OrquestadorPageInner() {
   };
 
   const clearFilters = () => { setSelectedForma(null); setSelectedExp(null); setFilterOnlyErrors(false); };
+
+  // --- Splash Loader Inicial ---
+  if (showSplash) {
+    return <SplashLoader onComplete={() => setShowSplash(false)} />;
+  }
 
   // --- Auth Guards ---
   if (authLoading) {
