@@ -7,5 +7,6 @@ import { DatabaseModule } from '../database/database.module';
   imports: [DatabaseModule],
   controllers: [PlanillasController],
   providers: [PlanillasService],
+  exports: [PlanillasService]
 })
 export class PlanillasModule {}

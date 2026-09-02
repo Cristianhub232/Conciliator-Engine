@@ -7,6 +7,9 @@ import { ConfiguracionModule } from './configuracion/configuracion.module';
 import { AuthModule } from './auth/auth.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 import { DepuracionModule } from './depuracion/depuracion.module';
+import { PipelineModule } from './pipeline/pipeline.module';
+import { IaModule } from './ia/ia.module';
+import { TelegramModule } from './telegram/telegram.module';
 import { ConfigModule } from '@nestjs/config';
 
 @Module({
@@ -17,7 +20,10 @@ import { ConfigModule } from '@nestjs/config';
     ConfiguracionModule,
     AuthModule,
     UsuariosModule,
-    DepuracionModule
+    DepuracionModule,
+    PipelineModule,
+    IaModule,
+    TelegramModule
   ],
   controllers: [AppController],
   providers: [AppService],

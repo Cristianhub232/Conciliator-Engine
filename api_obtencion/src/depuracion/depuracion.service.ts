@@ -404,6 +404,114 @@ export class DepuracionService {
   }
 
   /**
+   * Ejecuta depuración automática para el bot o pipeline sin requerir contraseña interactiva
+   */
+  async ejecutarDepuracionAutomatica(
+    fecha: string,
+    banco: string,
+    planillas_ids: string[],
+    motivo: string = 'Depuración automática por Bot Orquestador',
+    operador: string = 'BOT_TELEGRAM'
+  ) {
+    if (!fecha || !banco || !planillas_ids || planillas_ids.length === 0) {
+      return { total_eliminadas: 0, monto_total: 0, formas_afectadas: [] };
+    }
+
+    const connection = await this.db.getConnection();
+    let eliminadasCount = 0;
+    let montoDepurado = 0;
+    const formasAfectadasSet = new Set<string>();
+    const planillasProcesadas: any[] = [];
+
+    try {
+      for (const planillaId of planillas_ids) {
+        const checkRes = await connection.execute(
+          `SELECT PLANILLA, FORMA_CODIGO, NVL(MONTO_EFECTIVO, 0) AS MONTO, IDENT_CNTB
+           FROM ORG_LIQ.TXT_SENIAT 
+           WHERE PLANILLA = :planillaId 
+             AND FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD') 
+             AND INFN_CODIGO = :banco`,
+          { planillaId, fecha, banco },
+          { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        );
+
+        const rows = checkRes.rows as any[];
+        if (rows && rows.length > 0) {
+          const row = rows[0];
+          montoDepurado += Number(row.MONTO || 0);
+          formasAfectadasSet.add(String(row.FORMA_CODIGO));
+          planillasProcesadas.push({
+            planilla_id: String(row.PLANILLA),
+            forma: String(row.FORMA_CODIGO),
+            monto: Number(row.MONTO),
+            rif: String(row.IDENT_CNTB || '')
+          });
+
+          try {
+            const delRes = await connection.execute(
+              `DELETE FROM ORG_LIQ.TXT_SENIAT 
+               WHERE PLANILLA = :planillaId 
+                 AND FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD') 
+                 AND INFN_CODIGO = :banco`,
+              { planillaId, fecha, banco }
+            );
+            eliminadasCount += (delRes.rowsAffected || 0);
+          } catch (delErr) {
+            const updRes = await connection.execute(
+              `UPDATE ORG_LIQ.TXT_SENIAT 
+               SET ESTADO = -1, ANHO = NULL, LOTE_SEQ = NULL, PLAN_SEQ = NULL 
+               WHERE PLANILLA = :planillaId 
+                 AND FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD') 
+                 AND INFN_CODIGO = :banco`,
+              { planillaId, fecha, banco }
+            );
+            eliminadasCount += (updRes.rowsAffected || 0);
+          }
+        }
+      }
+
+      await connection.commit();
+    } catch (err: any) {
+      await connection.rollback();
+      throw new Error('Error en la transacción Oracle al depurar planillas: ' + err.message);
+    } finally {
+      await connection.close();
+    }
+
+    // Registrar auditoría en PostgreSQL si está disponible
+    try {
+      await this.pg.query(
+        `INSERT INTO motor_app.depuracion_audit 
+         (usuario_email, usuario_nombre, fecha_recaudacion, banco_codigo, total_registros_eliminados, 
+          monto_total_depurado, formas_afectadas, planillas_afectadas, motivo_autorizacion, ip_address, detalles)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [
+          operador,
+          'Bot Automatizado ONT',
+          fecha,
+          banco,
+          eliminadasCount,
+          Math.round(montoDepurado * 100) / 100,
+          Array.from(formasAfectadasSet).join(', '),
+          JSON.stringify(planillasProcesadas),
+          motivo,
+          '127.0.0.1',
+          JSON.stringify({ origen: 'TelegramBot', total_solicitadas: planillas_ids.length })
+        ]
+      );
+    } catch (auditErr) {
+      console.warn('[DEPURACION] No se pudo guardar registro de auditoria en postgres:', auditErr);
+    }
+
+    return {
+      total_eliminadas: eliminadasCount,
+      monto_total: Math.round(montoDepurado * 100) / 100,
+      formas_afectadas: Array.from(formasAfectadasSet),
+      planillas_afectadas: planillasProcesadas
+    };
+  }
+
+  /**
    * Obtiene el historial de bitácoras de depuración desde PostgreSQL
    */
   async getHistorialAudit(): Promise<any[]> {
@@ -418,3 +526,4 @@ export class DepuracionService {
     return res.rows;
   }
 }
+
