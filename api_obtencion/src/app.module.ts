@@ -10,6 +10,7 @@ import { DepuracionModule } from './depuracion/depuracion.module';
 import { PipelineModule } from './pipeline/pipeline.module';
 import { IaModule } from './ia/ia.module';
 import { TelegramModule } from './telegram/telegram.module';
+import { BotConfigModule } from './bot-config/bot-config.module';
 import { ConfigModule } from '@nestjs/config';
 
 @Module({
@@ -23,7 +24,8 @@ import { ConfigModule } from '@nestjs/config';
     DepuracionModule,
     PipelineModule,
     IaModule,
-    TelegramModule
+    TelegramModule,
+    BotConfigModule
   ],
   controllers: [AppController],
   providers: [AppService],

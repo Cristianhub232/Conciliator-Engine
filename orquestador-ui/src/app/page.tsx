@@ -14,6 +14,7 @@ import { CatalogoFormasView } from '../components/CatalogoFormasView';
 import { DepuracionView } from '../components/DepuracionView';
 import { UsuariosView } from '../components/UsuariosView';
 import { ConfiguracionView } from '../components/ConfiguracionView';
+import { BotConfigView } from '../components/BotConfigView';
 
 function OrquestadorPageInner() {
   const { isAuthenticated, loading: authLoading } = useAuth();
@@ -307,6 +308,7 @@ function OrquestadorPageInner() {
         {activeTab === 'auditoria' && <AuditoriaLogsView />}
         {activeTab === 'catalogo_formas' && <CatalogoFormasView />}
         {activeTab === 'depuracion' && <DepuracionView />}
+        {activeTab === 'bot-config' && <BotConfigView />}
         {activeTab === 'usuarios' && <UsuariosView />}
         {activeTab === 'configuracion' && <ConfiguracionView />}
 

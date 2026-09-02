@@ -12,6 +12,12 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   private isPollingActive = false;
   private currentOffset = 0;
 
+  private botInfo = {
+    connected: false,
+    username: '',
+    firstName: ''
+  };
+
   constructor(
     private readonly pipelineService: PipelineService,
     private readonly iaService: IaService
@@ -26,9 +32,40 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     this.logger.log('[TELEGRAM] Bot detenido correctamente.');
   }
 
+  public getBotInfo() {
+    return {
+      connected: this.botInfo.connected,
+      username: this.botInfo.username,
+      firstName: this.botInfo.firstName,
+      allowedUsers: Array.from(this.allowedUsers),
+      tokenConfigured: !!process.env.TELEGRAM_BOT_TOKEN
+    };
+  }
+
+  public async recargarBot(newToken?: string, allowedUsers?: string) {
+    this.isPollingActive = false;
+    if (newToken) {
+      process.env.TELEGRAM_BOT_TOKEN = newToken.trim();
+    }
+    if (allowedUsers !== undefined) {
+      process.env.TELEGRAM_ALLOWED_USERS = allowedUsers.trim();
+      this.allowedUsers.clear();
+      if (process.env.TELEGRAM_ALLOWED_USERS) {
+        process.env.TELEGRAM_ALLOWED_USERS.split(',').forEach(id => {
+          const num = parseInt(id.trim(), 10);
+          if (!isNaN(num)) this.allowedUsers.add(num);
+        });
+      }
+    }
+    await new Promise(r => setTimeout(r, 1000));
+    this.iniciarBot();
+    return this.getBotInfo();
+  }
+
   private iniciarBot() {
     const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
     if (!token) {
+      this.botInfo.connected = false;
       this.logger.warn(
         '[TELEGRAM] TELEGRAM_BOT_TOKEN no está definido en api_obtencion/.env. El bot de Telegram no se iniciará hasta configurar el token.'
       );
@@ -36,6 +73,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Cargar usuarios autorizados
+    this.allowedUsers.clear();
     const allowedEnv = process.env.TELEGRAM_ALLOWED_USERS?.trim();
     if (allowedEnv) {
       allowedEnv.split(',').forEach(id => {
@@ -68,9 +106,15 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
       // Verificar conexión y arrancar polling controlado
       this.bot.telegram.getMe().then(me => {
+        this.botInfo = {
+          connected: true,
+          username: me.username || '',
+          firstName: me.first_name || ''
+        };
         this.logger.log(`[TELEGRAM] 🚀 Bot @${me.username} (${me.first_name}) conectado exitosamente.`);
         this.iniciarPollingLoop();
       }).catch(err => {
+        this.botInfo.connected = false;
         this.logger.error(`[TELEGRAM] Error conectando con Telegram getMe: ${err.message}`);
         setTimeout(() => this.iniciarBot(), 4000);
       });
