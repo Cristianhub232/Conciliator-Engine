@@ -9,6 +9,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   private bot: Telegraf | null = null;
   private allowedUsers: Set<number> = new Set();
 
+  private isPollingActive = false;
+  private currentOffset = 0;
+
   constructor(
     private readonly pipelineService: PipelineService,
     private readonly iaService: IaService
@@ -19,12 +22,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleDestroy() {
-    if (this.bot) {
-      try {
-        this.bot.stop('SIGTERM');
-        this.logger.log('[TELEGRAM] Bot detenido correctamente.');
-      } catch (e) {}
-    }
+    this.isPollingActive = false;
+    this.logger.log('[TELEGRAM] Bot detenido correctamente.');
   }
 
   private iniciarBot() {
@@ -67,14 +66,49 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
       this.registrarComandos();
 
-      // Iniciar polling sin bloquear el hilo principal
-      this.bot.launch().then(() => {
-        this.logger.log('[TELEGRAM] 🚀 Bot de Telegram conectado y en escucha activa.');
-      }).catch((err) => {
-        this.logger.error(`[TELEGRAM] Error al iniciar polling de Telegram: ${err.message}`);
+      // Verificar conexión y arrancar polling controlado
+      this.bot.telegram.getMe().then(me => {
+        this.logger.log(`[TELEGRAM] 🚀 Bot @${me.username} (${me.first_name}) conectado exitosamente.`);
+        this.iniciarPollingLoop();
+      }).catch(err => {
+        this.logger.error(`[TELEGRAM] Error conectando con Telegram getMe: ${err.message}`);
+        setTimeout(() => this.iniciarBot(), 4000);
       });
     } catch (err: any) {
       this.logger.error(`[TELEGRAM] Fallo al inicializar Telegraf: ${err.message}`);
+    }
+  }
+
+  private async iniciarPollingLoop() {
+    this.isPollingActive = true;
+    while (this.isPollingActive) {
+      try {
+        if (!this.bot) break;
+        const updates = await this.bot.telegram.getUpdates(15, 100, this.currentOffset, []);
+
+        if (Array.isArray(updates) && updates.length > 0) {
+          for (const update of updates) {
+            if (!this.isPollingActive) break;
+            this.currentOffset = update.update_id + 1;
+            try {
+              await this.bot.handleUpdate(update);
+            } catch (handleErr: any) {
+              this.logger.error(`[TELEGRAM] Error procesando update ${update.update_id}: ${handleErr.message}`);
+            }
+          }
+        } else {
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      } catch (pollErr: any) {
+        if (this.isPollingActive) {
+          if (pollErr.message && pollErr.message.includes('409')) {
+            this.logger.warn('[TELEGRAM] Conflicto 409 detectado. Reintentando polling en 3s...');
+          } else {
+            this.logger.warn(`[TELEGRAM] Aviso en polling: ${pollErr.message}. Reintentando en 3s...`);
+          }
+          await new Promise(r => setTimeout(r, 3000));
+        }
+      }
     }
   }
 
