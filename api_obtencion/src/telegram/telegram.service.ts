@@ -128,7 +128,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     while (this.isPollingActive) {
       try {
         if (!this.bot) break;
-        const updates = await this.bot.telegram.getUpdates(15, 100, this.currentOffset, []);
+        const updates = await this.bot.telegram.getUpdates(0, 100, this.currentOffset, []);
 
         if (Array.isArray(updates) && updates.length > 0) {
           for (const update of updates) {
@@ -295,10 +295,13 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    const normInicio = this.normalizarFecha(fechaInicio);
+    const normFin = this.normalizarFecha(fechaFin);
+
     // Validación básica de fecha
     const regexFecha = /^\d{4}-\d{2}-\d{2}$/;
-    if (!regexFecha.test(fechaInicio) || !regexFecha.test(fechaFin)) {
-      await ctx.reply('⚠️ Formato de fecha no válido. Debe ser `YYYY-MM-DD` (ej. `2024-04-15`).', { parse_mode: 'Markdown' });
+    if (!regexFecha.test(normInicio) || !regexFecha.test(normFin)) {
+      await ctx.reply('⚠️ Formato de fecha no válido. Debe ser `YYYY-MM-DD` (ej. `2024-04-15`) o `DD/MM/YYYY`.', { parse_mode: 'Markdown' });
       return;
     }
 
@@ -307,7 +310,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     await ctx.reply(
       `🚀 *Lote Recibido*\n` +
       `🏦 Banco: *${banco}*\n` +
-      `📅 Rango: *${fechaInicio}* a *${fechaFin}*\n` +
+      `📅 Rango: *${normInicio}* a *${normFin}*\n` +
       `👤 Operador: *${operador}*\n\n` +
       `Iniciando ejecución secuencial día a día sin concurrencia...`,
       { parse_mode: 'Markdown' }
@@ -331,6 +334,19 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }).catch((err) => {
       ctx.reply(`❌ *Error fatal:* ${err.message}`).catch(() => {});
     });
+  }
+
+  private normalizarFecha(f: string): string {
+    if (!f) return '';
+    const clean = f.trim();
+    const matchSlash = clean.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (matchSlash) {
+      const dia = matchSlash[1].padStart(2, '0');
+      const mes = matchSlash[2].padStart(2, '0');
+      const anho = matchSlash[3];
+      return `${anho}-${mes}-${dia}`;
+    }
+    return clean;
   }
 
   private async enviarMensajeSeguro(ctx: Context, texto: string) {

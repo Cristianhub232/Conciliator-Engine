@@ -134,9 +134,13 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
 
     // 2. Cerrar pool anterior si existe
     try {
-      const oldPool = oracledb.getPool('default');
+      let oldPool: oracledb.Pool | null = null;
+      try {
+        oldPool = oracledb.getPool('default');
+      } catch {}
+
       if (oldPool) {
-        await oldPool.close(10);
+        await oldPool.close(0);
       }
     } catch (err) {
       this.logger.warn('Aviso al cerrar pool anterior:', err);

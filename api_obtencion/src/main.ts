@@ -1,3 +1,11 @@
+import * as net from 'net';
+import * as dns from 'dns';
+
+try {
+  (net as any).setDefaultAutoSelectFamily?.(false);
+  dns.setDefaultResultOrder?.('ipv4first');
+} catch (e) {}
+
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 

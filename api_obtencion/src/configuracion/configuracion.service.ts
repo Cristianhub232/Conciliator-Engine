@@ -75,19 +75,41 @@ export class ConfiguracionService {
       // 1. Reconectar Pool en memoria
       const reconnectRes = await this.db.reconnectPool(config);
 
-      // 2. Persistir en archivo .env
-      const envContent = [
-        `PORT=3010`,
-        `ORACLE_HOST=${config.host}`,
-        `ORACLE_PORT=${config.port || 1521}`,
-        `ORACLE_SERVICE_NAME=${config.service_name || ''}`,
-        `ORACLE_SID=${config.sid || ''}`,
-        `ORACLE_USER=${config.user}`,
-        `ORACLE_PASSWORD=${config.password}`,
-        ``,
-      ].join('\n');
+      // 2. Actualizar .env preservando el resto de las variables (PostgreSQL, Telegram, IA, JWT)
+      let envLines: string[] = [];
+      if (fs.existsSync(this.envPath)) {
+        const raw = await fs.promises.readFile(this.envPath, 'utf8');
+        envLines = raw.split('\n');
+      }
 
-      await fs.promises.writeFile(this.envPath, envContent, 'utf8');
+      const updates: Record<string, string> = {
+        ORACLE_HOST: config.host,
+        ORACLE_PORT: String(config.port || 1521),
+        ORACLE_SERVICE_NAME: config.service_name || '',
+        ORACLE_SID: config.sid || '',
+        ORACLE_USER: config.user,
+        ORACLE_PASSWORD: config.password || '',
+      };
+
+      const updatedKeys = new Set<string>();
+      const newLines = envLines.map(line => {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('#') || !trimmed.includes('=')) return line;
+        const key = trimmed.split('=')[0].trim();
+        if (Object.prototype.hasOwnProperty.call(updates, key)) {
+          updatedKeys.add(key);
+          return `${key}=${updates[key]}`;
+        }
+        return line;
+      });
+
+      for (const [key, val] of Object.entries(updates)) {
+        if (!updatedKeys.has(key)) {
+          newLines.push(`${key}=${val}`);
+        }
+      }
+
+      await fs.promises.writeFile(this.envPath, newLines.join('\n'), 'utf8');
       this.logger.log(`Archivo .env actualizado exitosamente en ${this.envPath}`);
 
       return {
