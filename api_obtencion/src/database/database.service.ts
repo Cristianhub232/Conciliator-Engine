@@ -14,6 +14,7 @@ export interface OracleDbConfig {
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DatabaseService.name);
+  private activePool: oracledb.Pool | null = null;
   private currentConfig: OracleDbConfig = {
     user: '',
     password: '',
@@ -42,8 +43,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
 
       const connectString = `(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=${this.currentConfig.host})(PORT=${this.currentConfig.port}))(CONNECT_DATA=${connectData}))`;
       
-      await oracledb.createPool({
-        poolAlias: 'default',
+      this.activePool = await oracledb.createPool({
         user: this.currentConfig.user,
         password: this.currentConfig.password,
         connectString,
@@ -63,9 +63,9 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy() {
     try {
-      const pool = oracledb.getPool('default');
-      if (pool) {
-        await pool.close(10);
+      if (this.activePool) {
+        await this.activePool.close(0);
+        this.activePool = null;
         this.logger.log('Oracle Database pool closed.');
       }
     } catch (err) {
@@ -133,28 +133,30 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     }
 
     // 2. Cerrar pool anterior si existe
-    try {
-      let oldPool: oracledb.Pool | null = null;
+    if (this.activePool) {
       try {
-        oldPool = oracledb.getPool('default');
-      } catch {}
-
-      if (oldPool) {
-        await oldPool.close(0);
+        await this.activePool.close(0);
+      } catch (err) {
+        this.logger.warn('Aviso al cerrar pool activo:', err);
       }
-    } catch (err) {
-      this.logger.warn('Aviso al cerrar pool anterior:', err);
+      this.activePool = null;
     }
 
-    // 3. Crear nuevo pool
+    try {
+      const oldDefault = oracledb.getPool('default');
+      if (oldDefault) {
+        await oldDefault.close(0);
+      }
+    } catch {}
+
+    // 3. Crear nuevo pool anónimo (sin alias colisionable)
     const connectData = config.sid
       ? `(SID=${config.sid})`
       : `(SERVICE_NAME=${config.service_name || 'estatal'})`;
 
     const connectString = `(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=${config.host})(PORT=${config.port}))(CONNECT_DATA=${connectData}))`;
 
-    await oracledb.createPool({
-      poolAlias: 'default',
+    this.activePool = await oracledb.createPool({
       user: config.user,
       password: config.password,
       connectString,
@@ -210,9 +212,15 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
 
   async getConnection(): Promise<oracledb.Connection> {
     try {
-      const pool = oracledb.getPool('default');
-      const conn = await pool.getConnection();
-      return conn;
+      if (this.activePool) {
+        return await this.activePool.getConnection();
+      }
+      try {
+        const pool = oracledb.getPool('default');
+        return await pool.getConnection();
+      } catch {}
+      
+      throw new Error('Pool no disponible');
     } catch (poolErr) {
       this.logger.warn('Pool getConnection failed, falling back to direct connection:', poolErr);
       const connectData = this.currentConfig.sid
