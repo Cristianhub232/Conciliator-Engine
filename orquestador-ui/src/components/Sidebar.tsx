@@ -1,6 +1,4 @@
-"use client";
-
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Zap, 
   Users, 
@@ -36,6 +34,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleCollapse
 }) => {
   const { usuario, logout } = useAuth();
+  const [oracleInstance, setOracleInstance] = useState<{ sid: string; host: string }>({
+    sid: 'cert_rep',
+    host: '172.21.65.90'
+  });
+
+  const fetchEnv = async () => {
+    try {
+      const res = await fetch('/api/orquestador/configuracion/env');
+      if (res.ok) {
+        const data = await res.json();
+        const config = data.config || {};
+        setOracleInstance({
+          sid: config.sid || config.service_name || 'sige1',
+          host: config.host || ''
+        });
+      }
+    } catch (e) {}
+  };
+
+  useEffect(() => {
+    fetchEnv();
+    window.addEventListener('oracle-env-updated', fetchEnv);
+    return () => window.removeEventListener('oracle-env-updated', fetchEnv);
+  }, []);
 
   const navItems = [
     {
@@ -250,7 +272,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', paddingTop: '4px', borderTop: '1px solid #F1F5F9' }}>
               <span style={{ fontSize: '11px', fontWeight: 700, color: '#5C6C80' }}>Oracle 19c</span>
-              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '10.5px', color: '#8797A8' }}>cert_rep · pool 20</span>
+              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '10.5px', color: '#1E5C99', fontWeight: 600 }}>{oracleInstance.sid} · pool 20</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', paddingTop: '4px', borderTop: '1px solid #F1F5F9' }}>
               <span style={{ fontSize: '11px', fontWeight: 700, color: '#5C6C80' }}>PostgreSQL</span>

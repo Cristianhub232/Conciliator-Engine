@@ -157,6 +157,9 @@ export const ConfiguracionView: React.FC = () => {
           user,
           password
         });
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('oracle-env-updated'));
+        }
       }
     } catch (err: any) {
       setNotification({
