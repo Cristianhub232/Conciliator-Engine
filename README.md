@@ -49,7 +49,7 @@ ORACLE_PORT=1521
 ORACLE_SERVICE_NAME=estatal
 ORACLE_SID=cert_rep
 ORACLE_USER=ONT_SIR_BOT
-ORACLE_PASSWORD=ONT_SIR_BOT123456
+ORACLE_PASSWORD="ONT_SIR_BOT123456"
 
 # ==============================================================================
 # BASE DE DATOS POSTGRESQL (CONTROL, AUDITORÍA Y USUARIOS)
@@ -58,12 +58,13 @@ PG_HOST=10.78.30.63
 PG_PORT=5432
 PG_DATABASE=xmls
 PG_USER=ont
-PG_PASSWORD=123456
+PG_PASSWORD="123456"
 
 # ==============================================================================
 # SEGURIDAD Y TOKEN JWT
 # ==============================================================================
-JWT_SECRET=SIRONT_SECRET_KEY_2026_VENEZUELA
+JWT_SECRET="SIRONT_SECRET_KEY_2026_VENEZUELA"
+JWT_EXPIRES_IN=4h
 
 # ==============================================================================
 # URLs DE ENLACE DE PROXY (FRONTEND)
@@ -71,6 +72,10 @@ JWT_SECRET=SIRONT_SECRET_KEY_2026_VENEZUELA
 API_BACKEND_URL=http://localhost:3010
 CATALOGO_API_URL=http://10.46.0.189:3000
 ```
+
+> [!WARNING]
+> **Caracteres especiales en contraseñas (`#`, `$`, `!`, espacios):**  
+> En los archivos `.env`, cualquier valor o contraseña que contenga caracteres especiales como `#` **debe estar encerrado obligatoriamente entre comillas dobles** (`ORACLE_PASSWORD="mi#clave$segura"`). De lo contrario, la librería `dotenv` interpreta el `#` como un comentario de línea y truncará la clave, ocasionando errores de autenticación como `ORA-01017: invalid username/password`.
 
 ---
 
@@ -167,8 +172,8 @@ pm2 startup
 ### 4.4. Comandos de Gestión con PM2:
 
 ```bash
-# Reiniciar el Backend
-pm2 restart ont-backend-api
+# Reiniciar el Backend (usar --update-env si se modificó el archivo .env)
+pm2 restart ont-backend-api --update-env
 
 # Reiniciar el Frontend
 pm2 restart ont-frontend-ui

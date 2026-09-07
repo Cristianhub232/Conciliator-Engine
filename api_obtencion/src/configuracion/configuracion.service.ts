@@ -91,6 +91,15 @@ export class ConfiguracionService {
         ORACLE_PASSWORD: config.password || '',
       };
 
+      const formatEnvValue = (key: string, val: string) => {
+        // Envolver contraseñas, secretos o valores con caracteres especiales (#, $, !, comillas, espacios) en comillas dobles
+        if (key.includes('PASSWORD') || key.includes('SECRET') || /[#$!\s"']/.test(val)) {
+          const escaped = val.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+          return `${key}="${escaped}"`;
+        }
+        return `${key}=${val}`;
+      };
+
       const updatedKeys = new Set<string>();
       const newLines = envLines.map(line => {
         const trimmed = line.trim();
@@ -98,14 +107,14 @@ export class ConfiguracionService {
         const key = trimmed.split('=')[0].trim();
         if (Object.prototype.hasOwnProperty.call(updates, key)) {
           updatedKeys.add(key);
-          return `${key}=${updates[key]}`;
+          return formatEnvValue(key, updates[key]);
         }
         return line;
       });
 
       for (const [key, val] of Object.entries(updates)) {
         if (!updatedKeys.has(key)) {
-          newLines.push(`${key}=${val}`);
+          newLines.push(formatEnvValue(key, val));
         }
       }
 

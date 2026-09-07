@@ -31,6 +31,7 @@ function OrquestadorPageInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [depuracionAlert, setDepuracionAlert] = useState<any>(null);
+  const [depuracionError, setDepuracionError] = useState<string | null>(null);
   const [mappingStates, setMappingStates] = useState<Record<string, any>>({});
   const [authStates, setAuthStates] = useState<Record<string, any>>({});
   const [successStates, setSuccessStates] = useState<Record<string, any>>({});
@@ -86,6 +87,7 @@ function OrquestadorPageInner() {
     setSuccessStates({});
     setMappingStates({});
     setDepuracionAlert(null);
+    setDepuracionError(null);
     setStoppedByUser(false);
     try {
       const [res, depScanRes] = await Promise.all([
@@ -94,11 +96,16 @@ function OrquestadorPageInner() {
         }),
         axios.get(`/api/orquestador/depuracion/scan`, {
           params: { fecha, banco }
-        }).catch(() => ({ data: { total_detectadas: 0 } }))
+        }).catch((err: any) => {
+          const msg = err.response?.data?.message || err.message || 'Error al conectar con Oracle';
+          return { error: msg, data: { total_detectadas: 0 } };
+        })
       ]);
 
       setPlanillas(res.data.data || []);
-      if (depScanRes.data && depScanRes.data.total_detectadas > 0) {
+      if ((depScanRes as any).error) {
+        setDepuracionError((depScanRes as any).error);
+      } else if (depScanRes.data && depScanRes.data.total_detectadas > 0) {
         setDepuracionAlert(depScanRes.data);
       }
     } catch (err: any) {
@@ -411,6 +418,52 @@ function OrquestadorPageInner() {
             }}
           >
             Ir a Depuración →
+          </button>
+        </div>
+      )}
+
+      {/* ── Banner de Advertencia si falla el escáner de depuración ── */}
+      {depuracionError && (
+        <div style={{
+          margin: '0 0 20px',
+          padding: '14px 18px',
+          background: '#fffbeb',
+          border: '1px solid #fde68a',
+          borderRadius: '12px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '14px',
+          animation: 'fadeIn 0.2s ease'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ width: '38px', height: '38px', borderRadius: '8px', background: '#d97706', color: '#ffffff', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+              <AlertTriangle size={18} />
+            </div>
+            <div>
+              <h4 style={{ margin: '0 0 2px', fontSize: '13px', fontWeight: 800, color: '#92400e' }}>
+                Advertencia: No se pudo verificar el catálogo de depuración en Oracle
+              </h4>
+              <p style={{ margin: 0, fontSize: '12px', color: '#b45309' }}>
+                {depuracionError}. Verifique la conexión con la base de datos o consulte la pestaña de Depuración.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab('depuracion')}
+            className="btn"
+            style={{
+              background: '#d97706',
+              color: '#ffffff',
+              height: '34px',
+              padding: '0 14px',
+              fontSize: '12px',
+              fontWeight: 700,
+              whiteSpace: 'nowrap'
+            }}
+          >
+            Revisar Depuración →
           </button>
         </div>
       )}

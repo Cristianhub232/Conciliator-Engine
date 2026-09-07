@@ -133,7 +133,8 @@ export const CatalogoFormasView: React.FC = () => {
     { letra: 'V', cod_partida: '301010200', designacion: 'Impuesto Sobre La Renta a Personas Naturales' },
     { letra: 'E', cod_partida: '301010200', designacion: 'Impuesto Sobre La Renta a Personas Naturales' },
     { letra: 'J', cod_partida: '301010111', designacion: 'Impuesto Sobre La Renta a Otras Personas Jurídicas' },
-    { letra: 'G', cod_partida: '301010111', designacion: 'Impuesto Sobre La Renta a Otras Personas Jurídicas' }
+    { letra: 'G', cod_partida: '301010111', designacion: 'Impuesto Sobre La Renta a Otras Personas Jurídicas' },
+    { letra: 'P', cod_partida: '301010200', designacion: 'Impuesto Sobre La Renta a Personas Naturales' }
   ]);
   const [editMotivo, setEditMotivo] = useState<string>('Actualización de reglas operativas ONT');
   const [editSubmitting, setEditSubmitting] = useState(false);
@@ -230,6 +231,23 @@ export const CatalogoFormasView: React.FC = () => {
           { cod_partida: '301032500', designacion: 'Servicios de Aduana', porcentaje: 6 }
         ]);
       }
+
+      if (detail.OPCIONES_RIF && detail.OPCIONES_RIF.length > 0) {
+        setEditRifList(detail.OPCIONES_RIF.map((r: any) => ({
+          letra: r.LETRA_RIF || r.valor || 'V',
+          cod_partida: r.COD_PARTIDA || r.cod_partida,
+          designacion: r.DESIGNACION_PARTIDA || r.designacion || ''
+        })));
+      } else {
+        // Inicializar reglas RIF estándar si la forma no tiene reglas previas
+        setEditRifList([
+          { letra: 'V', cod_partida: '301010200', designacion: 'Impuesto Sobre La Renta a Personas Naturales' },
+          { letra: 'E', cod_partida: '301010200', designacion: 'Impuesto Sobre La Renta a Personas Naturales' },
+          { letra: 'J', cod_partida: '301010111', designacion: 'Impuesto Sobre La Renta a Otras Personas Jurídicas' },
+          { letra: 'G', cod_partida: '301010111', designacion: 'Impuesto Sobre La Renta a Otras Personas Jurídicas' },
+          { letra: 'P', cod_partida: '301010200', designacion: 'Impuesto Sobre La Renta a Personas Naturales' }
+        ]);
+      }
     } catch (err) {
       console.warn('No se pudo obtener el detalle profundo de la forma, usando datos básicos:', err);
     }
@@ -272,7 +290,11 @@ export const CatalogoFormasView: React.FC = () => {
           porcentaje: Number(p.porcentaje)
         }));
       } else if (editTipoResolucion === 'RIF') {
-        bodyPayload.reglas_rif = editRifList;
+        bodyPayload.opciones_rif = editRifList.map(r => ({
+          valor: r.letra,
+          cod_partida: r.cod_partida,
+          designacion: r.designacion
+        }));
       }
 
       await axios.put(`/api/catalogo/formas/${selectedFormaForEdit.COD_FORMA}/reglas`, bodyPayload);
