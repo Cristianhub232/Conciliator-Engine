@@ -12,10 +12,16 @@ import { IaModule } from './ia/ia.module';
 import { TelegramModule } from './telegram/telegram.module';
 import { BotConfigModule } from './bot-config/bot-config.module';
 import { ConfigModule } from '@nestjs/config';
+import * as path from 'path';
+import { loadRequiredEnvironment } from './config/env-loader';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }), 
+    ConfigModule.forRoot({
+      isGlobal: true,
+      ignoreEnvFile: true,
+      load: [() => loadRequiredEnvironment(path.resolve(process.cwd(), '.env'))],
+    }),
     PlanillasModule, 
     AuditoriaModule,
     ConfiguracionModule,
