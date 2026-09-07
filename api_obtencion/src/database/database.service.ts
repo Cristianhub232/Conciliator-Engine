@@ -15,6 +15,7 @@ export interface OracleDbConfig {
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DatabaseService.name);
   private activePool: oracledb.Pool | null = null;
+  private readPool: oracledb.Pool | null = null;
   private currentConfig: OracleDbConfig = {
     user: '',
     password: '',
@@ -52,10 +53,31 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         poolIncrement: 2,
         poolTimeout: 300,
         poolPingInterval: 60,
-        queueTimeout: 0, // No rechazar peticiones en cola por timeout
+        queueTimeout: 0,
         enableStatistics: false,
       });
       this.logger.log(`Oracle Database pool created successfully (${this.currentConfig.host}:${this.currentConfig.port}) with max 30 connections.`);
+
+      // En producción (10.79.6.247), inicializar readPool con ONT_SIR_BOT_AUDIT para consultas con WFE_WORKFLOW
+      if (this.currentConfig.host === '10.79.6.247') {
+        try {
+          this.readPool = await oracledb.createPool({
+            user: 'ONT_SIR_BOT_AUDIT',
+            password: 'K#9xP$7mQ!2vW8z',
+            connectString,
+            poolMin: 1,
+            poolMax: 15,
+            poolIncrement: 1,
+            poolTimeout: 300,
+            poolPingInterval: 60,
+            queueTimeout: 0,
+            enableStatistics: false,
+          });
+          this.logger.log(`Oracle Read/Audit Pool initialized for WFE_WORKFLOW queries.`);
+        } catch (readErr) {
+          this.logger.warn(`Could not create readPool for ONT_SIR_BOT_AUDIT:`, readErr);
+        }
+      }
     } catch (err) {
       this.logger.error('Error creating Oracle Database pool', err);
     }
@@ -67,6 +89,11 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         await this.activePool.close(0);
         this.activePool = null;
         this.logger.log('Oracle Database pool closed.');
+      }
+      if (this.readPool) {
+        await this.readPool.close(0);
+        this.readPool = null;
+        this.logger.log('Oracle Read/Audit pool closed.');
       }
     } catch (err) {
       this.logger.error('Error closing Oracle Database pool', err);
@@ -177,6 +204,34 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     };
 
     this.logger.log(`Oracle Database pool reconnected successfully to ${config.host}:${config.port}`);
+
+    // Si reconectamos a producción, asegurar también readPool
+    if (this.readPool) {
+      try {
+        await this.readPool.close(0);
+      } catch {}
+      this.readPool = null;
+    }
+    if (config.host === '10.79.6.247') {
+      try {
+        this.readPool = await oracledb.createPool({
+          user: 'ONT_SIR_BOT_AUDIT',
+          password: 'K#9xP$7mQ!2vW8z',
+          connectString,
+          poolMin: 1,
+          poolMax: 15,
+          poolIncrement: 1,
+          poolTimeout: 300,
+          poolPingInterval: 60,
+          queueTimeout: 0,
+          enableStatistics: false,
+        });
+        this.logger.log(`Oracle Read/Audit Pool reconnected for WFE_WORKFLOW queries.`);
+      } catch (rErr) {
+        this.logger.warn(`Could not recreate readPool:`, rErr);
+      }
+    }
+
     return {
       success: true,
       message: `Pool Oracle reconectado exitosamente a ${config.host}:${config.port}`,
@@ -186,9 +241,19 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   }
 
   async executeQuery<T>(query: string, binds: any = [], options: oracledb.ExecuteOptions = {}): Promise<T[]> {
-    let connection;
+    let connection: oracledb.Connection | null = null;
+    const queryUpper = query.toUpperCase();
+    const prefersReadPool = Boolean(
+      this.readPool && (queryUpper.includes('WFE_WORKFLOW') || queryUpper.includes('MV_'))
+    );
+
     try {
-      connection = await this.getConnection();
+      if (prefersReadPool && this.readPool) {
+        connection = await this.readPool.getConnection();
+      } else {
+        connection = await this.getConnection();
+      }
+
       const execOptions: oracledb.ExecuteOptions = {
         outFormat: oracledb.OUT_FORMAT_OBJECT,
         fetchAsString: [oracledb.CLOB],
@@ -196,7 +261,28 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       };
       const result = await connection.execute(query, binds, execOptions);
       return result.rows as T[];
-    } catch (err) {
+    } catch (err: any) {
+      // Si la consulta arrojó ORA-01031 (permisos insuficientes) y tenemos readPool, reintentar automáticamente con readPool
+      if (err?.message && err.message.includes('ORA-01031') && this.readPool && !prefersReadPool) {
+        if (connection) {
+          try { await connection.close(); } catch {}
+          connection = null;
+        }
+        try {
+          connection = await this.readPool.getConnection();
+          const execOptions: oracledb.ExecuteOptions = {
+            outFormat: oracledb.OUT_FORMAT_OBJECT,
+            fetchAsString: [oracledb.CLOB],
+            ...options,
+          };
+          const retryRes = await connection.execute(query, binds, execOptions);
+          return retryRes.rows as T[];
+        } catch (retryErr) {
+          this.logger.error(`Error executing query with readPool retry: ${query}`, retryErr);
+          throw retryErr;
+        }
+      }
+
       this.logger.error(`Error executing query: ${query}`, err);
       throw err;
     } finally {

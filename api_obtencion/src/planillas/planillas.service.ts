@@ -247,25 +247,28 @@ export class PlanillasService {
         // Construir bloques dinámicos para DET_PLANILLA en el mismo PL/SQL atómico
         let detSql = '';
         const plsqlBinds: any = {
-          planilla: String(payload.planilla_id),
+          planilla: String(payload.planilla_id).trim(),
           fecha: fechaLimpia,
-          banco: String(payload.banco),
+          banco: String(payload.banco).trim(),
           anho,
-          loteId: payload.lote_id,
-          loteSeq: payload.lote_seq,
-          forma: String(payload.forma),
-          montoTotal: payload.monto,
-          expediente: payload.expediente,
+          loteId: Number(payload.lote_id) || 0,
+          loteSeq: Number(payload.lote_seq) || 0,
+          forma: String(payload.forma).trim(),
+          montoTotal: Number(payload.monto) || 0,
+          expediente: Number(payload.expediente) || 0,
           periodo,
           outSeq: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER }
         };
 
         let detpSeq = 1;
-        for (const item of payload.asignaciones) {
+        for (const item of (payload.asignaciones || [])) {
           const partidaKey = `partida_${detpSeq}`;
           const montoKey = `monto_${detpSeq}`;
-          plsqlBinds[partidaKey] = String(item.partida);
-          plsqlBinds[montoKey] = Number(item.monto);
+          const codPartida = String(item.partida || (item as any).cod_partida || '').trim();
+          const montoPartida = Number(item.monto) || 0;
+
+          plsqlBinds[partidaKey] = codPartida;
+          plsqlBinds[montoKey] = montoPartida;
 
           detSql += `
             INSERT INTO ORG_LIQ.DET_PLANILLA 
@@ -384,6 +387,7 @@ export class PlanillasService {
           continue;
         }
 
+        console.error('[PLANILLAS] Error en conciliarPlanilla:', error?.message || error, 'Payload:', JSON.stringify(payload));
         throw new Error(`Error en conciliación atómica: ${error.message}`);
       } finally {
         if (connection) {

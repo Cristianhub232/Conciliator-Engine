@@ -238,7 +238,7 @@ function OrquestadorPageInner() {
           banco: p.BANCO,
           agencia: p.AGENCIA,
           fecha_recaudacion: p.FECHA_RECAUDACION.split('T')[0],
-          asignaciones: mapState.data.asignaciones.map((a: any) => ({ partida: a.cod_partida, monto: a.monto }))
+          asignaciones: (mapState.data?.asignaciones || []).map((a: any) => ({ partida: a.cod_partida || a.partida, monto: Number(a.monto) || 0 }))
         };
 
         await axios.post(`/api/orquestador/planillas/conciliar`, payload, {

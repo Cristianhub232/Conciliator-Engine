@@ -5,7 +5,7 @@ const nextConfig = {
       {
         // Proxy para la API de Obtención/Conciliación (Localhost)
         source: '/api/orquestador/:path*',
-        destination: 'http://localhost:3010/api/:path*',
+        destination: 'http://127.0.0.1:3010/api/:path*',
       },
       {
         // Proxy para la API de Catálogo Forma->Partida (Servidor 10.46)

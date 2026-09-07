@@ -109,9 +109,10 @@ export const CatalogoFormasView: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'danger' } | null>(null);
 
-  // Filtros de Formas
+  // Filtros de Formas y Partidas
   const [searchForma, setSearchForma] = useState('');
   const [selectedTipo, setSelectedTipo] = useState<string>('TODAS');
+  const [searchPartida, setSearchPartida] = useState('');
 
   // Estado del Simulador
   const [simForma, setSimForma] = useState('99086');
@@ -384,6 +385,16 @@ export const CatalogoFormasView: React.FC = () => {
     const matchesTipo = selectedTipo === 'TODAS' || f.TIPO_RESOLUCION === selectedTipo;
 
     return matchesSearch && matchesTipo;
+  });
+
+  // Filtrado de Partidas
+  const partidasFiltradas = partidas.filter((p) => {
+    const q = searchPartida.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      p.COD_PARTIDA.toLowerCase().includes(q) ||
+      (p.DESIGNACION_PARTIDA && p.DESIGNACION_PARTIDA.toLowerCase().includes(q))
+    );
   });
 
   // Conteo por tipos
@@ -1039,48 +1050,104 @@ export const CatalogoFormasView: React.FC = () => {
           TAB 3: CATÁLOGO DE PARTIDAS (39)
       ══════════════════════════════════════════════════════════════════════ */}
       {activeSubTab === 'partidas' && (
-        <div className="table-section">
-          <div className="table-container">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th style={{ width: '160px' }}>Código de Partida</th>
-                  <th>Designación Presupuestaria Oficial (Ingreso Fiscal)</th>
-                  <th style={{ width: '160px', textAlign: 'center' }}>Formas Vinculadas</th>
-                  <th style={{ width: '120px', textAlign: 'right' }}>Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                {partidas.map((p) => (
-                  <tr key={p.COD_PARTIDA}>
-                    <td>
-                      <span className="mono" style={{ fontWeight: 750, color: 'var(--brand)', fontSize: '13px' }}>
-                        {p.COD_PARTIDA}
-                      </span>
-                    </td>
-                    <td style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '13px' }}>
-                      {p.DESIGNACION_PARTIDA}
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <span className="badge badge-info" style={{ fontWeight: 700 }}>
-                        {p.TOTAL_FORMAS || 1} Formas
-                      </span>
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      <button
-                        type="button"
-                        onClick={() => handleOpenPartidaFormas(p)}
-                        className="btn btn-ghost"
-                        style={{ padding: '5px 10px', height: 'auto', fontSize: '11px', color: 'var(--brand)' }}
-                      >
-                        <Eye size={13} style={{ marginRight: 4 }} />
-                        Ver Formas
-                      </button>
-                    </td>
+        <div style={{ padding: '0 28px 32px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Buscador de Partidas Presupuestarias */}
+          <div className="search-panel">
+            <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', alignItems: 'center', width: '100%' }}>
+              <div style={{ position: 'relative', flex: '1 1 340px' }}>
+                <Search size={16} color="#94a3b8" style={{ position: 'absolute', left: '12px', top: '12px' }} />
+                <input
+                  type="text"
+                  value={searchPartida}
+                  onChange={(e) => setSearchPartida(e.target.value)}
+                  placeholder="Buscar por código de partida (ej. 301010200) o designación..."
+                  className="input-field"
+                  style={{ paddingLeft: '38px', paddingRight: searchPartida ? '36px' : '12px' }}
+                />
+                {searchPartida && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchPartida('')}
+                    style={{
+                      position: 'absolute',
+                      right: '10px',
+                      top: '10px',
+                      background: 'none',
+                      border: 'none',
+                      color: '#94a3b8',
+                      cursor: 'pointer',
+                      padding: '2px',
+                      display: 'flex',
+                      alignItems: 'center'
+                    }}
+                    title="Limpiar búsqueda"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                {searchPartida ? (
+                  <span>Mostrando <strong>{partidasFiltradas.length}</strong> de {partidas.length} partidas</span>
+                ) : (
+                  <span>Total partidas en catálogo: <strong>{partidas.length}</strong></span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="table-section">
+            <div className="table-container">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th style={{ width: '160px' }}>Código de Partida</th>
+                    <th>Designación Presupuestaria Oficial (Ingreso Fiscal)</th>
+                    <th style={{ width: '160px', textAlign: 'center' }}>Formas Vinculadas</th>
+                    <th style={{ width: '120px', textAlign: 'right' }}>Acción</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {partidasFiltradas.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                        No se encontraron partidas presupuestarias que coincidan con la búsqueda.
+                      </td>
+                    </tr>
+                  ) : (
+                    partidasFiltradas.map((p) => (
+                      <tr key={p.COD_PARTIDA}>
+                        <td>
+                          <span className="mono" style={{ fontWeight: 750, color: 'var(--brand)', fontSize: '13px' }}>
+                            {p.COD_PARTIDA}
+                          </span>
+                        </td>
+                        <td style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '13px' }}>
+                          {p.DESIGNACION_PARTIDA}
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          <span className="badge badge-info" style={{ fontWeight: 700 }}>
+                            {p.TOTAL_FORMAS || 1} Formas
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenPartidaFormas(p)}
+                            className="btn btn-ghost"
+                            style={{ padding: '5px 10px', height: 'auto', fontSize: '11px', color: 'var(--brand)' }}
+                          >
+                            <Eye size={13} style={{ marginRight: 4 }} />
+                            Ver Formas
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}

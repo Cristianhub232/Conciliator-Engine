@@ -5,6 +5,7 @@ import * as jwt from 'jsonwebtoken';
 import { LoginDto } from './dto/login.dto';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'SIRONT_SECRET_KEY_2026_VENEZUELA';
+const JWT_EXPIRES_IN = (process.env.JWT_EXPIRES_IN || '4h') as jwt.SignOptions['expiresIn'];
 
 @Injectable()
 export class AuthService {
@@ -50,7 +51,7 @@ export class AuthService {
       rol: user.rol,
     };
 
-    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
+    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 
     // Registrar sesión en auditoría
     try {
