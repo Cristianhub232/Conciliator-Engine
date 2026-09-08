@@ -296,6 +296,17 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async getReadConnection(): Promise<oracledb.Connection> {
+    if (this.readPool) {
+      try {
+        return await this.readPool.getConnection();
+      } catch (err) {
+        this.logger.warn('Error obteniendo conexion de readPool, fallback a activePool:', err);
+      }
+    }
+    return await this.getConnection();
+  }
+
   async getConnection(): Promise<oracledb.Connection> {
     try {
       if (this.activePool) {

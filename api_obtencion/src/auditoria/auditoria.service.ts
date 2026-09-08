@@ -13,7 +13,7 @@ export class AuditoriaService {
   async getAuditoriaTranscriptor(usuario: string, anho: number = 2024) {
     let connection;
     try {
-      connection = await this.db.getConnection();
+      connection = await this.db.getReadConnection();
       const execOptions: oracledb.ExecuteOptions = { outFormat: oracledb.OUT_FORMAT_OBJECT };
 
       // 1. Obtener Datos del Usuario en WF_USERS
@@ -53,7 +53,7 @@ export class AuditoriaService {
                TO_CHAR(W.WI_FECHA_CREACION, 'YYYY-MM-DD') AS FECHA_ASIGNACION
         FROM WFE_WORKFLOW.WF_WORK_ITEM W
         JOIN ORG_LIQ.LOTE L 
-          ON TRIM(W.WFEX_EXP_ID) = TRIM(L.EXPEDIENTE)
+          ON W.WFEX_EXP_ID = L.EXPEDIENTE AND W.ANHO = L.ANHO
         WHERE W.WFUS_USERS_ID = :usuario
           AND L.ANHO = :anho
           AND W.WI_ESTADO IN ('ABIERTA', 'PENDIENTE', 'PENDEINTE')
@@ -86,12 +86,8 @@ export class AuditoriaService {
         SELECT COUNT(DISTINCT W.WFEX_EXP_ID) AS TOTAL_CERRADOS
         FROM WFE_WORKFLOW.WF_WORK_ITEM W
         WHERE W.WFUS_USERS_ID = :usuario
+          AND W.ANHO = :anho
           AND W.WI_ESTADO IN ('CERRADA', 'CERRADO')
-          AND TRIM(W.WFEX_EXP_ID) IN (
-              SELECT TRIM(EXPEDIENTE) 
-              FROM ORG_LIQ.LOTE 
-              WHERE ANHO = :anho
-          )
       `;
       const cerradosRes = await connection.execute(qCerrados, { usuario: usuario.toUpperCase(), anho }, execOptions);
       const totalCerrados = (cerradosRes.rows as any[])?.[0]?.TOTAL_CERRADOS || 0;
@@ -121,7 +117,7 @@ export class AuditoriaService {
   async getDetalleExpediente(expedienteId: string, anho: number = 2024) {
     let connection;
     try {
-      connection = await this.db.getConnection();
+      connection = await this.db.getReadConnection();
       const execOptions: oracledb.ExecuteOptions = { outFormat: oracledb.OUT_FORMAT_OBJECT };
 
       // 1. Obtener lotes del expediente en estado 'P' o todos
@@ -130,11 +126,11 @@ export class AuditoriaService {
                TO_CHAR(FECHA_RECAUDACION, 'YYYY-MM-DD') AS FECHA_RECAUDACION, 
                INFN_CODIGO, AGENCIA_CODIGO, LOTE_ID, ESTADO
         FROM ORG_LIQ.LOTE 
-        WHERE TRIM(EXPEDIENTE) = :expedienteId 
+        WHERE EXPEDIENTE = :expedienteId 
           AND ANHO = :anho
         ORDER BY LOTE_ID ASC
       `;
-      const lotesRes = await connection.execute(qLotes, { expedienteId: String(expedienteId).trim(), anho }, execOptions);
+      const lotesRes = await connection.execute(qLotes, { expedienteId: Number(expedienteId) || expedienteId, anho }, execOptions);
       const lotes = (lotesRes.rows as any[]) || [];
 
       let totalPlanillasLote = 0;
@@ -235,7 +231,7 @@ export class AuditoriaService {
   async getDetalleLote(loteSeq: number, anho: number = 2024) {
     let connection;
     try {
-      connection = await this.db.getConnection();
+      connection = await this.db.getReadConnection();
       const execOptions: oracledb.ExecuteOptions = { outFormat: oracledb.OUT_FORMAT_OBJECT };
 
       const qLote = `
