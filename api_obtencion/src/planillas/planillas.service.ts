@@ -38,6 +38,8 @@ export interface RevertirPayload {
   planilla_id: string;
   banco: string;
   fecha_recaudacion: string;
+  forma?: string;
+  agencia?: string;
 }
 
 @Injectable()
@@ -258,6 +260,7 @@ export class PlanillasService {
           planilla: String(payload.planilla_id).trim(),
           fecha: fechaLimpia,
           banco: String(payload.banco).trim(),
+          agencia: payload.agencia ? String(payload.agencia).trim() : null,
           anho,
           loteId: Number(payload.lote_id) || 0,
           loteSeq: Number(payload.lote_seq) || 0,
@@ -303,11 +306,14 @@ export class PlanillasService {
               SELECT NVL(IDENT_CNTB, 'V000000000') INTO v_ident
               FROM ORG_LIQ.TXT_SENIAT
               WHERE PLANILLA = :planilla 
+                AND FORMA_CODIGO = :forma
                 AND FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD') 
-                AND INFN_CODIGO = :banco;
+                AND INFN_CODIGO = :banco
+                AND (:agencia IS NULL OR AGENCIA_CODIGO = :agencia)
+                AND ROWNUM = 1;
             EXCEPTION
               WHEN NO_DATA_FOUND THEN
-                RAISE_APPLICATION_ERROR(-20001, 'No se encontro el registro en TXT_SENIAT para la planilla ' || :planilla);
+                RAISE_APPLICATION_ERROR(-20001, 'No se encontro el registro en TXT_SENIAT para la planilla ' || :planilla || ', forma ' || :forma || ' y agencia ' || NVL(:agencia, 'N/A'));
             END;
 
             -- 2. Calcular siguiente correlativo PLAN_SEQ
@@ -332,8 +338,10 @@ export class PlanillasService {
             UPDATE ORG_LIQ.TXT_SENIAT 
             SET ESTADO = 1, ANHO = :anho, LOTE_SEQ = :loteSeq, PLAN_SEQ = v_seq 
             WHERE PLANILLA = :planilla 
+              AND FORMA_CODIGO = :forma
               AND FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD')
-              AND INFN_CODIGO = :banco;
+              AND INFN_CODIGO = :banco
+              AND (:agencia IS NULL OR AGENCIA_CODIGO = :agencia);
 
             -- 6. Verificar si el lote se completó (Planillas conciliadas >= TOTAL_PLN)
             BEGIN
@@ -490,12 +498,17 @@ export class PlanillasService {
             `SELECT IDENT_CNTB, AGENCIA_CODIGO 
              FROM ORG_LIQ.TXT_SENIAT 
              WHERE PLANILLA = :planilla 
+               AND FORMA_CODIGO = :forma
                AND FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD')
-               AND INFN_CODIGO = :banco`,
+               AND INFN_CODIGO = :banco
+               AND (:agencia IS NULL OR AGENCIA_CODIGO = :agencia)
+               AND ROWNUM = 1`,
             {
               planilla: String(payload.planilla_id),
+              forma: String(payload.forma),
               fecha: fechaLimpia,
-              banco: String(payload.banco)
+              banco: String(payload.banco),
+              agencia: payload.agencia ? String(payload.agencia).trim() : null
             },
             execOptions,
             5000
@@ -580,15 +593,19 @@ export class PlanillasService {
             `UPDATE ORG_LIQ.TXT_SENIAT 
              SET ESTADO = 1, ANHO = :anho, LOTE_SEQ = :loteSeq, PLAN_SEQ = :planSeq 
              WHERE PLANILLA = :planilla 
+               AND FORMA_CODIGO = :forma
                AND FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD')
-               AND INFN_CODIGO = :banco`,
+               AND INFN_CODIGO = :banco
+               AND (:agencia IS NULL OR AGENCIA_CODIGO = :agencia)`,
             {
               anho,
               loteSeq: payload.lote_seq,
               planSeq,
               planilla: String(payload.planilla_id),
+              forma: String(payload.forma),
               fecha: fechaLimpia,
-              banco: String(payload.banco)
+              banco: String(payload.banco),
+              agencia: payload.agencia ? String(payload.agencia).trim() : null
             },
             execOptions,
             5000
@@ -716,17 +733,21 @@ export class PlanillasService {
         detalles: 'Reversión desde Orquestador UI'
       });
 
-      // 2. Borrar en DET_PLANILLA
+      // 2. Borrar en DET_PLANILLA (discriminando por forma si se provee)
       await connection.execute(
-        `DELETE FROM ORG_LIQ.DET_PLANILLA WHERE PLANILLA_ID = :planilla`,
-        { planilla: payload.planilla_id },
+        `DELETE FROM ORG_LIQ.DET_PLANILLA 
+         WHERE PLANILLA_ID = :planilla 
+           AND (:forma IS NULL OR FORMA_CODIGO = :forma)`,
+        { planilla: payload.planilla_id, forma: payload.forma || null },
         execOptions
       );
 
       // 3. Borrar en PLANILLA (Cabecera)
       await connection.execute(
-        `DELETE FROM ORG_LIQ.PLANILLA WHERE PLANILLA_ID = :planilla`,
-        { planilla: payload.planilla_id },
+        `DELETE FROM ORG_LIQ.PLANILLA 
+         WHERE PLANILLA_ID = :planilla 
+           AND (:forma IS NULL OR FORMA_CODIGO = :forma)`,
+        { planilla: payload.planilla_id, forma: payload.forma || null },
         execOptions
       );
 
@@ -738,10 +759,14 @@ export class PlanillasService {
              LOTE_SEQ = NULL, 
              PLAN_SEQ = NULL 
          WHERE PLANILLA = :planilla 
+           AND (:forma IS NULL OR FORMA_CODIGO = :forma)
+           AND (:agencia IS NULL OR AGENCIA_CODIGO = :agencia)
            AND INFN_CODIGO = :banco 
            AND FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD')`,
         {
           planilla: payload.planilla_id,
+          forma: payload.forma || null,
+          agencia: payload.agencia || null,
           banco: payload.banco,
           fecha: payload.fecha_recaudacion
         },
