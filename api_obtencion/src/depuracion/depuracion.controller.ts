@@ -8,6 +8,7 @@ export class EjecutarDepuracionDto {
   motivo!: string;
   password_autorizacion!: string;
   usuario_email!: string;
+  expediente?: string;
 }
 
 @Controller('api/depuracion')

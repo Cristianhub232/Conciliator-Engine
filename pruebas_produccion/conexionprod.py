@@ -2,15 +2,41 @@ import oracledb
 import sys
 
 # --- Configuración de Conexión (Producción SIGECOF) ---
-DB_USER = "consulta"
-DB_PASSWORD = "pumyra1584"
 DB_HOST = "10.79.6.247"
-DB_PORT = "1521"
+DB_PORT = 1521
 DB_SID = "sige1"
 
-def conectar():
+CREDENCIALES = {
+    "consulta": "pumyra1584",
+    "ONT_SIR_BOT": r"bR4#mK9$L1pX!7v",
+    "ONT_SIR_BOT_AUDIT": r"K#9xP$7mQ!2vW8z",
+}
+
+def conectar(user="consulta"):
+    """
+    Establece conexión con la base de datos de producción (sige1).
+    Usuarios disponibles:
+      - 'consulta' (default): Lectura general y auditoría.
+      - 'ONT_SIR_BOT': Operativo con permisos DML (INSERT, DELETE en PLANILLA/DET_PLANILLA, UPDATE en TXT_SENIAT, LOTE, WF_EXPEDIENTE).
+      - 'ONT_SIR_BOT_AUDIT': Propietario de repositorio y vistas materializadas.
+    """
+    user_key = user.strip()
+    pwd = CREDENCIALES.get(user_key) or CREDENCIALES.get(user_key.upper()) or CREDENCIALES.get(user_key.lower())
+    if not pwd:
+        raise ValueError(f"Usuario desconocido: {user}. Opciones válidas: {list(CREDENCIALES.keys())}")
+    
+    # Resolver nombre exacto para Oracle
+    db_user = "ONT_SIR_BOT" if user_key.upper() == "ONT_SIR_BOT" else ("ONT_SIR_BOT_AUDIT" if user_key.upper() == "ONT_SIR_BOT_AUDIT" else "consulta")
     dsn = oracledb.makedsn(DB_HOST, DB_PORT, sid=DB_SID)
-    return oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn)
+    return oracledb.connect(user=db_user, password=pwd, dsn=dsn)
+
+def conectar_bot():
+    """Atajo para conectar directamente con el usuario operativo ONT_SIR_BOT."""
+    return conectar("ONT_SIR_BOT")
+
+def conectar_consulta():
+    """Atajo para conectar con el usuario de solo lectura consulta."""
+    return conectar("consulta")
 
 def resumen_esquemas(cursor):
     # Consulta para contar la cantidad de tablas, vistas, etc. por esquema

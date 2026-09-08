@@ -28,14 +28,14 @@
 
 ### 1.1 Cuentas de servicio y credenciales
 
-| Atributo | Cuenta 1 | Cuenta 2 |
-|---|---|---|
-| **Esquema / Usuario** | `ONT_SIR_BOT_AUDIT` | `ONT_SIR_BOT` |
-| **Tipo de cuenta** | Propietario del esquema / Repositorio | Operativo / Cuenta de servicio (Python) |
-| **Password** | `K#9xP$7mQ!2vW8z` | `bR4#mK9$L1pX!7v` |
-| **Profile security** | `PRF_ONT_BOT` | `PRF_ONT_BOT` |
-| **Tablespace por defecto** | `ONT_SIR_BOT_AUDIT` (Quota: `UNLIMITED`) | `ONT_SIR_BOT_AUDIT` (Quota: `100M`) |
-| **Propósito** | Dueño de objetos, vistas materializadas y logs de auditoría | Conexión operativa de demonios / bots de automatización |
+| Atributo | Cuenta 1 | Cuenta 2 | Cuenta 3 (Auditoría) |
+|---|---|---|---|
+| **Esquema / Usuario** | `ONT_SIR_BOT_AUDIT` | `ONT_SIR_BOT` | `consulta` |
+| **Tipo de cuenta** | Propietario del esquema / Repositorio | Operativo / Cuenta de servicio (Python, Node) | Cuenta general de auditoría y lectura |
+| **Password** | `K#9xP$7mQ!2vW8z` | `bR4#mK9$L1pX!7v` | `pumyra1584` |
+| **Profile security** | `PRF_ONT_BOT` | `PRF_ONT_BOT` | Estándar |
+| **Tablespace por defecto** | `ONT_SIR_BOT_AUDIT` (Quota: `UNLIMITED`) | `ONT_SIR_BOT_AUDIT` (Quota: `100M`) | USERS |
+| **Propósito** | Dueño de objetos, vistas materializadas y logs de auditoría | Conexión operativa de demonios / bots (DML: Insert, Update, Delete) | Consultas analíticas y reportería solo lectura |
 
 ### 1.2 Almacenamiento y perfil de seguridad
 
@@ -56,11 +56,27 @@
 | `MV_AUDIT_ASIGNACIONES_2024` | Sinónimo privado | `READ DIRECT` | `ONT_SIR_BOT` |
 | `ORG_LIQ.*` (70 objetos) | Tablas y vistas | `SELECT` (100 %) | `ONT_SIR_BOT` / `ONT_SIR_BOT_AUDIT` |
 | `WFE_WORKFLOW.*` (39 objetos) | Tablas y vistas | `SELECT` (100 %) | `ONT_SIR_BOT` / `ONT_SIR_BOT_AUDIT` |
-| `ORG_LIQ.PLANILLA` | Tabla | `INSERT`, `DELETE` | `ONT_SIR_BOT` |
-| `ORG_LIQ.DET_PLANILLA` | Tabla | `INSERT`, `DELETE` | `ONT_SIR_BOT` |
-| `ORG_LIQ.TXT_SENIAT` | Tabla | `UPDATE` | `ONT_SIR_BOT` |
-| `WFE_WORKFLOW.WF_WORK_ITEM` | Tabla | `INSERT`, `UPDATE` | `ONT_SIR_BOT` |
+| `ORG_LIQ.PLANILLA` | Tabla | `SELECT`, `INSERT`, `DELETE` | `ONT_SIR_BOT` |
+| `ORG_LIQ.DET_PLANILLA` | Tabla | `SELECT`, `INSERT`, `DELETE` | `ONT_SIR_BOT` |
+| `ORG_LIQ.TXT_SENIAT` | Tabla | `SELECT`, `UPDATE` | `ONT_SIR_BOT` |
+| `ORG_LIQ.LOTE` | Tabla | `SELECT`, `UPDATE` *(Otorgado 08/09/2026)* | `ONT_SIR_BOT` |
+| `WFE_WORKFLOW.WF_EXPEDIENTE` | Tabla | `SELECT`, `UPDATE` *(Otorgado 08/09/2026)* | `ONT_SIR_BOT` |
+| `WFE_WORKFLOW.WF_WORK_ITEM` | Tabla | `SELECT`, `INSERT`, `UPDATE` | `ONT_SIR_BOT` |
 | `WFE_WORKFLOW.WF_AUDITA_EXPEDIENTES` | Tabla | `INSERT` | `ONT_SIR_BOT` |
+
+### 1.4 ⚠️ Consideración Crítica: Manejo de Caracteres Especiales en Passwords (`$`, `!`, `#`)
+
+> [!WARNING]
+> La contraseña de `ONT_SIR_BOT` es `bR4#mK9$L1pX!7v`. Contiene los caracteres `$`, `!`, y `#`.
+> 
+> **Causa de errores `ORA-01017: invalid username/password` al ejecutar desde scripts o Bash:**
+> 1. En entornos Linux / Bash, el fragmento `$L1` es interpretado como la **variable de entorno `$L1`** (que se evalúa a una cadena vacía `""`). Por ende, el shell envía la clave truncada `bR4#mK9pX!7v` (12 caracteres en vez de 15), provocando rechazo inmediato de login.
+> 2. El signo `!` activa la expansión de historial en shells interactivos.
+> 
+> **Buenas prácticas obligatorias de conexión:**
+> - **En Bash / Comandos directos:** Envolver siempre la contraseña o el script entre comillas simples estrictas (`'...'`) o bloques `cat << 'EOF'`.
+> - **En Python:** Usar el módulo central `conexionprod.py` (`from conexionprod import conectar; conn = conectar("ONT_SIR_BOT")`), o definirla como cadena literal con comillas simples: `password = 'bR4#mK9$L1pX!7v'`.
+> - **En archivos `.env` (Node.js):** Mantener comillas dobles: `ORACLE_PASSWORD="bR4#mK9$L1pX!7v"`.
 
 ---
 

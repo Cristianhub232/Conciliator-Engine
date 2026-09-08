@@ -39,7 +39,19 @@ export interface DepuracionScanResult {
     expediente?: number;
     lote_id?: number;
     lote_seq?: number;
+    total_pln?: number;
   }>;
+}
+
+export interface LoteAjustadoInfo {
+  anho: number;
+  lote_seq: number;
+  lote_id: number;
+  expediente: number;
+  agencia_codigo: string;
+  total_anterior: number;
+  depuradas: number;
+  total_nuevo: number;
 }
 
 export interface EjecutarDepuracionPayload {
@@ -49,6 +61,7 @@ export interface EjecutarDepuracionPayload {
   motivo: string;
   password_autorizacion: string;
   usuario_email: string;
+  expediente?: string;
 }
 
 @Injectable()
@@ -171,8 +184,24 @@ export class DepuracionService {
             T.INFN_CODIGO AS BANCO,
             T.AGENCIA_CODIGO AS AGENCIA,
             TO_CHAR(T.FECHA_RECAUDACION, 'YYYY-MM-DD') AS FECHA_RECAUDACION,
-            T.IDENT_CNTB AS RIF
+            T.IDENT_CNTB AS RIF,
+            L.EXPEDIENTE,
+            L.LOTE_ID,
+            L.LOTE_SEQ,
+            L.TOTAL_PLN
         FROM ORG_LIQ.TXT_SENIAT T
+        LEFT JOIN ORG_LIQ.LOTE L 
+            ON L.FECHA_RECAUDACION = T.FECHA_RECAUDACION 
+           AND L.INFN_CODIGO = T.INFN_CODIGO 
+           AND L.AGENCIA_CODIGO = T.AGENCIA_CODIGO
+           AND L.ANHO = EXTRACT(YEAR FROM T.FECHA_RECAUDACION)
+           AND (L.ESTADO = 'P' OR NOT EXISTS (
+               SELECT 1 FROM ORG_LIQ.LOTE L_ACT 
+               WHERE L_ACT.FECHA_RECAUDACION = T.FECHA_RECAUDACION 
+                 AND L_ACT.INFN_CODIGO = T.INFN_CODIGO 
+                 AND L_ACT.AGENCIA_CODIGO = T.AGENCIA_CODIGO 
+                 AND L_ACT.ESTADO = 'P'
+           ))
         WHERE T.FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD')
           AND T.INFN_CODIGO = :banco
           AND (T.ESTADO IS NULL OR T.ESTADO = 0)
@@ -181,12 +210,7 @@ export class DepuracionService {
       const binds: any = { fecha, banco };
 
       if (expediente) {
-        query += ` AND EXISTS (
-            SELECT 1 FROM ORG_LIQ.LOTE L 
-            WHERE L.FECHA_RECAUDACION = T.FECHA_RECAUDACION 
-              AND L.INFN_CODIGO = T.INFN_CODIGO 
-              AND L.EXPEDIENTE = :expediente
-        )`;
+        query += ` AND L.EXPEDIENTE = :expediente`;
         binds.expediente = expediente;
       }
 
@@ -200,15 +224,27 @@ export class DepuracionService {
         return codigosArray.includes(formaStr) || (!isNaN(formaNum) && codigosArray.includes(String(formaNum)));
       });
 
-      const planillas = matchedRows.map(r => ({
-        planilla_id: String(r.PLANILLA_ID),
-        forma: String(r.FORMA),
-        monto: Number(r.MONTO),
-        banco: String(r.BANCO),
-        agencia: String(r.AGENCIA),
-        fecha_recaudacion: String(r.FECHA_RECAUDACION),
-        rif: String(r.RIF || '')
-      }));
+      // Deduplicar por planilla_id garantizando un solo registro por planilla
+      const seenPlanillas = new Set<string>();
+      const planillas: any[] = [];
+      for (const r of matchedRows) {
+        const pid = String(r.PLANILLA_ID);
+        if (seenPlanillas.has(pid)) continue;
+        seenPlanillas.add(pid);
+        planillas.push({
+          planilla_id: pid,
+          forma: String(r.FORMA),
+          monto: Number(r.MONTO),
+          banco: String(r.BANCO),
+          agencia: String(r.AGENCIA),
+          fecha_recaudacion: String(r.FECHA_RECAUDACION),
+          rif: String(r.RIF || ''),
+          expediente: r.EXPEDIENTE ? Number(r.EXPEDIENTE) : undefined,
+          lote_id: r.LOTE_ID ? Number(r.LOTE_ID) : undefined,
+          lote_seq: r.LOTE_SEQ ? Number(r.LOTE_SEQ) : undefined,
+          total_pln: r.TOTAL_PLN ? Number(r.TOTAL_PLN) : undefined
+        });
+      }
 
       // Desglose por forma
       const desgloseMap = new Map<string, { cantidad: number; monto_total: number }>();
@@ -281,18 +317,29 @@ export class DepuracionService {
       throw new UnauthorizedException('Contraseña de autorización incorrecta. Operación cancelada.');
     }
 
-    // 2. Ejecutar eliminación atómica en Oracle
+    // 2. Ejecutar eliminación atómica en Oracle y ajuste de lotes
     const connection = await this.db.getConnection();
     let eliminadasCount = 0;
     let montoDepurado = 0;
     const formasAfectadasSet = new Set<string>();
     const planillasProcesadas: any[] = [];
+    const lotesAfectadosMap = new Map<string, {
+      anho: number;
+      lote_seq: number;
+      lote_id: number;
+      expediente: number;
+      agencia_codigo: string;
+      total_anterior: number;
+      depuradasCount: number;
+    }>();
+    const lotesAjustados: LoteAjustadoInfo[] = [];
 
     try {
       for (const planillaId of planillas_ids) {
-        // Consultar registro para auditoría antes de eliminar
+        // Consultar registro para auditoría e identificación de lote antes de eliminar
         const checkRes = await connection.execute(
-          `SELECT PLANILLA, FORMA_CODIGO, NVL(MONTO_EFECTIVO, 0) AS MONTO, IDENT_CNTB
+          `SELECT PLANILLA, FORMA_CODIGO, NVL(MONTO_EFECTIVO, 0) AS MONTO, IDENT_CNTB,
+                  AGENCIA_CODIGO, LOTE_SEQ, ANHO
            FROM ORG_LIQ.TXT_SENIAT 
            WHERE PLANILLA = :planillaId 
              AND FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD') 
@@ -306,11 +353,72 @@ export class DepuracionService {
           const row = rows[0];
           montoDepurado += Number(row.MONTO || 0);
           formasAfectadasSet.add(String(row.FORMA_CODIGO));
+
+          // Identificar lote asociado a la planilla
+          let loteInfo: any = null;
+          if (row.LOTE_SEQ) {
+            const anhoVal = row.ANHO || new Date(fecha).getFullYear();
+            const loteRes = await connection.execute(
+              `SELECT LOTE_SEQ, LOTE_ID, ANHO, TOTAL_PLN, EXPEDIENTE, AGENCIA_CODIGO
+               FROM ORG_LIQ.LOTE
+               WHERE LOTE_SEQ = :loteSeq AND ANHO = :anho`,
+              { loteSeq: row.LOTE_SEQ, anho: anhoVal },
+              { outFormat: oracledb.OUT_FORMAT_OBJECT }
+            );
+            if (loteRes.rows && loteRes.rows.length > 0) {
+              loteInfo = (loteRes.rows as any[])[0];
+            }
+          }
+
+          if (!loteInfo && row.AGENCIA_CODIGO) {
+            let loteQuery = `
+              SELECT LOTE_SEQ, LOTE_ID, ANHO, TOTAL_PLN, EXPEDIENTE, AGENCIA_CODIGO
+              FROM ORG_LIQ.LOTE
+              WHERE FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD')
+                AND INFN_CODIGO = :banco
+                AND AGENCIA_CODIGO = :agencia
+                AND ANHO = EXTRACT(YEAR FROM TO_DATE(:fecha, 'YYYY-MM-DD'))
+            `;
+            const loteBinds: any = { fecha, banco, agencia: row.AGENCIA_CODIGO };
+            if (payload.expediente) {
+              loteQuery += ` AND EXPEDIENTE = :expediente`;
+              loteBinds.expediente = payload.expediente;
+            }
+            loteQuery += ` ORDER BY CASE WHEN ESTADO = 'P' THEN 1 ELSE 2 END, LOTE_ID ASC`;
+
+            const loteRes = await connection.execute(loteQuery, loteBinds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+            if (loteRes.rows && loteRes.rows.length > 0) {
+              loteInfo = (loteRes.rows as any[])[0];
+            }
+          }
+
+          if (loteInfo) {
+            const loteKey = `${loteInfo.ANHO}_${loteInfo.LOTE_SEQ}`;
+            const existing = lotesAfectadosMap.get(loteKey);
+            if (existing) {
+              existing.depuradasCount += 1;
+            } else {
+              lotesAfectadosMap.set(loteKey, {
+                anho: Number(loteInfo.ANHO),
+                lote_seq: Number(loteInfo.LOTE_SEQ),
+                lote_id: Number(loteInfo.LOTE_ID),
+                expediente: Number(loteInfo.EXPEDIENTE || 0),
+                agencia_codigo: String(loteInfo.AGENCIA_CODIGO || ''),
+                total_anterior: Number(loteInfo.TOTAL_PLN || 0),
+                depuradasCount: 1
+              });
+            }
+          }
+
           planillasProcesadas.push({
             planilla_id: String(row.PLANILLA),
             forma: String(row.FORMA_CODIGO),
             monto: Number(row.MONTO),
-            rif: String(row.IDENT_CNTB || '')
+            rif: String(row.IDENT_CNTB || ''),
+            agencia: String(row.AGENCIA_CODIGO || ''),
+            lote_id: loteInfo ? Number(loteInfo.LOTE_ID) : undefined,
+            lote_seq: loteInfo ? Number(loteInfo.LOTE_SEQ) : undefined,
+            expediente: loteInfo ? Number(loteInfo.EXPEDIENTE) : undefined
           });
 
           // Intentar eliminación física o marcaje de depuración (ESTADO = -1) según permisos
@@ -336,6 +444,39 @@ export class DepuracionService {
             eliminadasCount += (updRes.rowsAffected || 0);
           }
         }
+      }
+
+      // Ajustar TOTAL_PLN de cada lote afectado en la misma transacción Oracle
+      for (const [, lote] of lotesAfectadosMap) {
+        await connection.execute(
+          `UPDATE ORG_LIQ.LOTE
+           SET TOTAL_PLN = GREATEST(0, TOTAL_PLN - :count)
+           WHERE ANHO = :anho AND LOTE_SEQ = :loteSeq`,
+          {
+            count: lote.depuradasCount,
+            anho: lote.anho,
+            loteSeq: lote.lote_seq
+          }
+        );
+
+        // Consultar el nuevo TOTAL_PLN actualizado
+        const checkLoteRes = await connection.execute(
+          `SELECT TOTAL_PLN FROM ORG_LIQ.LOTE WHERE ANHO = :anho AND LOTE_SEQ = :loteSeq`,
+          { anho: lote.anho, loteSeq: lote.lote_seq },
+          { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        );
+        const nuevoTotal = (checkLoteRes.rows as any[])?.[0]?.TOTAL_PLN ?? Math.max(0, lote.total_anterior - lote.depuradasCount);
+
+        lotesAjustados.push({
+          anho: lote.anho,
+          lote_seq: lote.lote_seq,
+          lote_id: lote.lote_id,
+          expediente: lote.expediente,
+          agencia_codigo: lote.agencia_codigo,
+          total_anterior: lote.total_anterior,
+          depuradas: lote.depuradasCount,
+          total_nuevo: Number(nuevoTotal)
+        });
       }
 
       await connection.commit();
@@ -364,7 +505,11 @@ export class DepuracionService {
         JSON.stringify(planillasProcesadas),
         motivo,
         reqIp,
-        JSON.stringify({ planillas_ids_solicitadas: planillas_ids })
+        JSON.stringify({
+          planillas_ids_solicitadas: planillas_ids,
+          expediente: payload.expediente || null,
+          lotes_ajustados: lotesAjustados
+        })
       ]
     );
 
@@ -380,6 +525,7 @@ export class DepuracionService {
         total_eliminadas: eliminadasCount,
         monto_total_depurado: montoDepurado,
         formas_afectadas: Array.from(formasAfectadasSet),
+        lotes_ajustados: lotesAjustados,
         motivo
       };
       let registros: any[] = [];
@@ -393,12 +539,17 @@ export class DepuracionService {
       console.warn('[DEPURACION] Error escribiendo en auditoria.json:', e);
     }
 
+    const mensajeLotes = lotesAjustados.length > 0
+      ? ` y se ajustó el total de ${lotesAjustados.length} lote(s) en ORG_LIQ.LOTE (${lotesAjustados.map(l => `Lote ${l.lote_id}: ${l.total_anterior} -> ${l.total_nuevo}`).join(', ')}).`
+      : '.';
+
     return {
       success: true,
-      mensaje: `Depuración completada: ${eliminadasCount} registros de formas no procesables eliminados exitosamente.`,
+      mensaje: `Depuración completada: ${eliminadasCount} registros de formas no procesables eliminados${mensajeLotes}`,
       eliminadas_count: eliminadasCount,
       monto_total_depurado: Math.round(montoDepurado * 100) / 100,
       formas_afectadas: Array.from(formasAfectadasSet),
+      lotes_afectados: lotesAjustados,
       audit_id: auditRes.rows[0]?.id
     };
   }
@@ -411,10 +562,11 @@ export class DepuracionService {
     banco: string,
     planillas_ids: string[],
     motivo: string = 'Depuración automática por Bot Orquestador',
-    operador: string = 'BOT_TELEGRAM'
+    operador: string = 'BOT_TELEGRAM',
+    expediente?: string
   ) {
     if (!fecha || !banco || !planillas_ids || planillas_ids.length === 0) {
-      return { total_eliminadas: 0, monto_total: 0, formas_afectadas: [] };
+      return { total_eliminadas: 0, monto_total: 0, formas_afectadas: [], lotes_afectados: [] };
     }
 
     const connection = await this.db.getConnection();
@@ -422,11 +574,22 @@ export class DepuracionService {
     let montoDepurado = 0;
     const formasAfectadasSet = new Set<string>();
     const planillasProcesadas: any[] = [];
+    const lotesAfectadosMap = new Map<string, {
+      anho: number;
+      lote_seq: number;
+      lote_id: number;
+      expediente: number;
+      agencia_codigo: string;
+      total_anterior: number;
+      depuradasCount: number;
+    }>();
+    const lotesAjustados: LoteAjustadoInfo[] = [];
 
     try {
       for (const planillaId of planillas_ids) {
         const checkRes = await connection.execute(
-          `SELECT PLANILLA, FORMA_CODIGO, NVL(MONTO_EFECTIVO, 0) AS MONTO, IDENT_CNTB
+          `SELECT PLANILLA, FORMA_CODIGO, NVL(MONTO_EFECTIVO, 0) AS MONTO, IDENT_CNTB,
+                  AGENCIA_CODIGO, LOTE_SEQ, ANHO
            FROM ORG_LIQ.TXT_SENIAT 
            WHERE PLANILLA = :planillaId 
              AND FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD') 
@@ -440,11 +603,72 @@ export class DepuracionService {
           const row = rows[0];
           montoDepurado += Number(row.MONTO || 0);
           formasAfectadasSet.add(String(row.FORMA_CODIGO));
+
+          // Identificar lote asociado
+          let loteInfo: any = null;
+          if (row.LOTE_SEQ) {
+            const anhoVal = row.ANHO || new Date(fecha).getFullYear();
+            const loteRes = await connection.execute(
+              `SELECT LOTE_SEQ, LOTE_ID, ANHO, TOTAL_PLN, EXPEDIENTE, AGENCIA_CODIGO
+               FROM ORG_LIQ.LOTE
+               WHERE LOTE_SEQ = :loteSeq AND ANHO = :anho`,
+              { loteSeq: row.LOTE_SEQ, anho: anhoVal },
+              { outFormat: oracledb.OUT_FORMAT_OBJECT }
+            );
+            if (loteRes.rows && loteRes.rows.length > 0) {
+              loteInfo = (loteRes.rows as any[])[0];
+            }
+          }
+
+          if (!loteInfo && row.AGENCIA_CODIGO) {
+            let loteQuery = `
+              SELECT LOTE_SEQ, LOTE_ID, ANHO, TOTAL_PLN, EXPEDIENTE, AGENCIA_CODIGO
+              FROM ORG_LIQ.LOTE
+              WHERE FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD')
+                AND INFN_CODIGO = :banco
+                AND AGENCIA_CODIGO = :agencia
+                AND ANHO = EXTRACT(YEAR FROM TO_DATE(:fecha, 'YYYY-MM-DD'))
+            `;
+            const loteBinds: any = { fecha, banco, agencia: row.AGENCIA_CODIGO };
+            if (expediente) {
+              loteQuery += ` AND EXPEDIENTE = :expediente`;
+              loteBinds.expediente = expediente;
+            }
+            loteQuery += ` ORDER BY CASE WHEN ESTADO = 'P' THEN 1 ELSE 2 END, LOTE_ID ASC`;
+
+            const loteRes = await connection.execute(loteQuery, loteBinds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+            if (loteRes.rows && loteRes.rows.length > 0) {
+              loteInfo = (loteRes.rows as any[])[0];
+            }
+          }
+
+          if (loteInfo) {
+            const loteKey = `${loteInfo.ANHO}_${loteInfo.LOTE_SEQ}`;
+            const existing = lotesAfectadosMap.get(loteKey);
+            if (existing) {
+              existing.depuradasCount += 1;
+            } else {
+              lotesAfectadosMap.set(loteKey, {
+                anho: Number(loteInfo.ANHO),
+                lote_seq: Number(loteInfo.LOTE_SEQ),
+                lote_id: Number(loteInfo.LOTE_ID),
+                expediente: Number(loteInfo.EXPEDIENTE || 0),
+                agencia_codigo: String(loteInfo.AGENCIA_CODIGO || ''),
+                total_anterior: Number(loteInfo.TOTAL_PLN || 0),
+                depuradasCount: 1
+              });
+            }
+          }
+
           planillasProcesadas.push({
             planilla_id: String(row.PLANILLA),
             forma: String(row.FORMA_CODIGO),
             monto: Number(row.MONTO),
-            rif: String(row.IDENT_CNTB || '')
+            rif: String(row.IDENT_CNTB || ''),
+            agencia: String(row.AGENCIA_CODIGO || ''),
+            lote_id: loteInfo ? Number(loteInfo.LOTE_ID) : undefined,
+            lote_seq: loteInfo ? Number(loteInfo.LOTE_SEQ) : undefined,
+            expediente: loteInfo ? Number(loteInfo.EXPEDIENTE) : undefined
           });
 
           try {
@@ -468,6 +692,38 @@ export class DepuracionService {
             eliminadasCount += (updRes.rowsAffected || 0);
           }
         }
+      }
+
+      // Ajustar TOTAL_PLN de cada lote afectado en la misma transacción Oracle
+      for (const [, lote] of lotesAfectadosMap) {
+        await connection.execute(
+          `UPDATE ORG_LIQ.LOTE
+           SET TOTAL_PLN = GREATEST(0, TOTAL_PLN - :count)
+           WHERE ANHO = :anho AND LOTE_SEQ = :loteSeq`,
+          {
+            count: lote.depuradasCount,
+            anho: lote.anho,
+            loteSeq: lote.lote_seq
+          }
+        );
+
+        const checkLoteRes = await connection.execute(
+          `SELECT TOTAL_PLN FROM ORG_LIQ.LOTE WHERE ANHO = :anho AND LOTE_SEQ = :loteSeq`,
+          { anho: lote.anho, loteSeq: lote.lote_seq },
+          { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        );
+        const nuevoTotal = (checkLoteRes.rows as any[])?.[0]?.TOTAL_PLN ?? Math.max(0, lote.total_anterior - lote.depuradasCount);
+
+        lotesAjustados.push({
+          anho: lote.anho,
+          lote_seq: lote.lote_seq,
+          lote_id: lote.lote_id,
+          expediente: lote.expediente,
+          agencia_codigo: lote.agencia_codigo,
+          total_anterior: lote.total_anterior,
+          depuradas: lote.depuradasCount,
+          total_nuevo: Number(nuevoTotal)
+        });
       }
 
       await connection.commit();
@@ -496,7 +752,12 @@ export class DepuracionService {
           JSON.stringify(planillasProcesadas),
           motivo,
           '127.0.0.1',
-          JSON.stringify({ origen: 'TelegramBot', total_solicitadas: planillas_ids.length })
+          JSON.stringify({
+            origen: 'TelegramBot',
+            total_solicitadas: planillas_ids.length,
+            expediente: expediente || null,
+            lotes_ajustados: lotesAjustados
+          })
         ]
       );
     } catch (auditErr) {
@@ -507,7 +768,8 @@ export class DepuracionService {
       total_eliminadas: eliminadasCount,
       monto_total: Math.round(montoDepurado * 100) / 100,
       formas_afectadas: Array.from(formasAfectadasSet),
-      planillas_afectadas: planillasProcesadas
+      planillas_afectadas: planillasProcesadas,
+      lotes_afectados: lotesAjustados
     };
   }
 

@@ -82,23 +82,28 @@ Al auditar la vista de privilegios `USER_TAB_PRIVS` para el usuario de conexión
 ]
 ```
 
-> [!CAUTION]
-> El usuario `ONT_SIR_BOT` **únicamente posee privilegio `SELECT` sobre `ORG_LIQ.LOTE`**.  
-> Carece del privilegio `UPDATE`. Por esta razón, cualquier intento del motor de ejecutar:
+> [!NOTE]
+> **ESTADO DE PERMISOS: APROBADOS Y VERIFICADOS EN PRODUCCIÓN (08/09/2026)**  
+> Los permisos `UPDATE` sobre `ORG_LIQ.LOTE` y `WFE_WORKFLOW.WF_EXPEDIENTE` solicitados al DBA **ya fueron otorgados exitosamente y verificados en `USER_TAB_PRIVS`**:
 > ```sql
-> UPDATE ORG_LIQ.LOTE SET ESTADO = 'V' WHERE LOTE_SEQ = :loteSeq
+> [ORG_LIQ.LOTE]                 -> SELECT, UPDATE (grantor: ORG_LIQ)
+> [WFE_WORKFLOW.WF_EXPEDIENTE]   -> SELECT, UPDATE (grantor: WFE_WORKFLOW)
+> [WFE_WORKFLOW.WF_WORK_ITEM]    -> SELECT, INSERT, UPDATE (grantor: WFE_WORKFLOW)
 > ```
-> es rechazado por el motor Oracle con el error:  
-> **`ORA-01031: insufficient privileges`**.
+> Con esta concesión, el motor cuenta con la capacidad plena de ejecutar:
+> ```sql
+> UPDATE ORG_LIQ.LOTE SET ESTADO = 'V' WHERE LOTE_SEQ = :loteSeq AND ANHO = :anho;
+> ```
+> y cerrar los expedientes en `WFE_WORKFLOW.WF_EXPEDIENTE`.
 
-### 2.2. Sentencias SQL Requeridas al Administrador de Base de Datos (DBA)
-Para que el motor de conciliación pueda cerrar los lotes y gestionar integralmente los expedientes, se debe solicitar al DBA la ejecución de los siguientes `GRANTs` en la base de datos de Certificación y Producción:
+### 2.2. Sentencias SQL que Fueron Ejecutadas por el Administrador de Base de Datos (DBA)
+El DBA ejecutó satisfactoriamente los siguientes `GRANTs` en producción (`sige1`):
 
 ```sql
--- 1. Permiso indispensable para cerrar / validar los lotes al terminar la conciliación:
+-- 1. Permiso para cerrar / validar los lotes al terminar la conciliación (EJECUTADO):
 GRANT UPDATE ON ORG_LIQ.LOTE TO ONT_SIR_BOT;
 
--- 2. Permiso para actualizar el estado del expediente en la cabecera de Workflow:
+-- 2. Permiso para actualizar el estado del expediente en la cabecera de Workflow (EJECUTADO):
 GRANT UPDATE ON WFE_WORKFLOW.WF_EXPEDIENTE TO ONT_SIR_BOT;
 ```
 
@@ -175,13 +180,13 @@ Estos eventos se visualizan en la pestaña de **Trazabilidad y Logs** de la inte
 
 1. **El caso del Expediente 7638 está resuelto en cuanto a planillas:**  
    Las 23 planillas de aduanas ya existen en la base de datos de producción con sus detalles contables y estado conciliado. La razón por la que "no sale nada" al descargar es porque **no hay nada pendiente por cargar**.
-2. **El bloqueo remanente es el permiso de cierre de lotes:**  
-   El Lote 42 permanece con `ESTADO = 'P'` únicamente porque `ONT_SIR_BOT` carece del `GRANT UPDATE ON ORG_LIQ.LOTE`.
-3. **Paso requerido con DBA:**  
-   Solicitar formalmente la aplicación de:
-   ```sql
-   GRANT UPDATE ON ORG_LIQ.LOTE TO ONT_SIR_BOT;
-   GRANT UPDATE ON WFE_WORKFLOW.WF_EXPEDIENTE TO ONT_SIR_BOT;
-   ```
+2. **El bloqueo remanente de permisos fue SUPERADO:**  
+   El DBA otorgó formalmente `GRANT UPDATE ON ORG_LIQ.LOTE TO ONT_SIR_BOT` y `GRANT UPDATE ON WFE_WORKFLOW.WF_EXPEDIENTE TO ONT_SIR_BOT` (verificado en `USER_TAB_PRIVS` el 08/09/2026).
+3. **Estado actual de operatividad:**  
+   El motor de conciliación y la plataforma cuentan con permisos quirúrgicos completos para:
+   - Insertar y eliminar planillas y detalles (`ORG_LIQ.PLANILLA`, `ORG_LIQ.DET_PLANILLA`).
+   - Actualizar el estado bancario en `ORG_LIQ.TXT_SENIAT` (`ESTADO = 1` o `-1`).
+   - Cerrar y validar los lotes actualizando `ORG_LIQ.LOTE` (`ESTADO = 'V'`).
+   - Actualizar el workflow en `WFE_WORKFLOW.WF_EXPEDIENTE` y `WFE_WORKFLOW.WF_WORK_ITEM`.
 4. **Posterior a la concesión de permisos:**  
    Se implementará en el código del motor la lógica de actualización atómica del estado del Lote (`'P'` -> `'V'`) y la transición controlada del Expediente (`ABIERTO` -> `PENDIENTE` -> `CERRADO`) junto a su persistencia en el módulo de auditoría de `motor_app`.

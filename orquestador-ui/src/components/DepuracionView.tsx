@@ -48,6 +48,10 @@ interface PlanillaDetectada {
   agencia: string;
   fecha_recaudacion: string;
   rif: string;
+  expediente?: number;
+  lote_id?: number;
+  lote_seq?: number;
+  total_pln?: number;
 }
 
 interface DesgloseForma {
@@ -274,7 +278,8 @@ export const DepuracionView: React.FC = () => {
         planillas_ids: Array.from(selectedPlanillaIds),
         motivo: authMotivo,
         password_autorizacion: authPassword,
-        usuario_email: usuario?.email || 'operador@ont.gob.ve'
+        usuario_email: usuario?.email || 'operador@ont.gob.ve',
+        expediente: expediente.trim() || undefined
       });
 
       showToast(`✅ ${res.data.mensaje}`, 'success');
@@ -599,6 +604,7 @@ export const DepuracionView: React.FC = () => {
                           <th style={{ textAlign: 'right', width: '140px' }}>Monto (Bs.)</th>
                           <th>RIF Contribuyente</th>
                           <th>Banco / Agencia</th>
+                          <th>Lote / Exp.</th>
                           <th>Fecha Recaudación</th>
                         </tr>
                       </thead>
@@ -633,6 +639,22 @@ export const DepuracionView: React.FC = () => {
                             </td>
                             <td style={{ fontSize: '12px' }}>
                               Banco {p.banco} · Ag. {p.agencia}
+                            </td>
+                            <td style={{ fontSize: '12px' }}>
+                              {p.lote_id ? (
+                                <div>
+                                  <span style={{ fontWeight: 700, color: '#1e293b' }}>
+                                    Lote {p.lote_id} {p.expediente ? <span style={{ color: '#64748b' }}>(Exp. {p.expediente})</span> : null}
+                                  </span>
+                                  {p.total_pln ? (
+                                    <div style={{ fontSize: '11px', color: '#0284c7', fontWeight: 600 }}>
+                                      Total: {p.total_pln} plns
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : (
+                                <span style={{ color: '#94a3b8' }}>Sin lote</span>
+                              )}
                             </td>
                             <td className="mono" style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                               {p.fecha_recaudacion}
@@ -940,7 +962,7 @@ export const DepuracionView: React.FC = () => {
                 lineHeight: 1.5,
                 marginBottom: '16px'
               }}>
-                <strong>⚠️ Advertencia Transaccional:</strong> Esta acción eliminará permanentemente <strong>{selectedPlanillaIds.size} planillas</strong> del extracto bancario (<code className="mono">ORG_LIQ.TXT_SENIAT</code>) para permitir la conciliación limpia del lote. Esta operación es irreversible y quedará registrada en la bitácora legal de auditoría con su usuario.
+                <strong>⚠️ Advertencia Transaccional:</strong> Esta acción eliminará/depurará <strong>{selectedPlanillaIds.size} planillas</strong> del extracto bancario (<code className="mono">ORG_LIQ.TXT_SENIAT</code>) y <strong>ajustará automáticamente el total del lote (<code className="mono">ORG_LIQ.LOTE.TOTAL_PLN</code>)</strong> restando {selectedPlanillaIds.size} unidad(es) para cuadrar la conciliación al 100%. Esta operación quedará registrada en la bitácora legal de auditoría con su usuario.
               </div>
 
               {/* Resumen de Depuración */}
@@ -956,7 +978,7 @@ export const DepuracionView: React.FC = () => {
                 fontSize: '12px'
               }}>
                 <div>
-                  <span style={{ color: 'var(--text-muted)' }}>Planillas a Eliminar:</span>
+                  <span style={{ color: 'var(--text-muted)' }}>Planillas a Depurar:</span>
                   <div style={{ fontSize: '15px', fontWeight: 800, color: '#e11d48' }}>{selectedPlanillaIds.size} registros</div>
                 </div>
                 <div>
@@ -966,12 +988,14 @@ export const DepuracionView: React.FC = () => {
                   </div>
                 </div>
                 <div>
-                  <span style={{ color: 'var(--text-muted)' }}>Fecha Recaudación:</span>
-                  <div className="mono" style={{ fontWeight: 700 }}>{fecha} (Banco {banco})</div>
+                  <span style={{ color: 'var(--text-muted)' }}>Ajuste Lote (TOTAL_PLN):</span>
+                  <div style={{ fontSize: '15px', fontWeight: 800, color: '#0284c7' }}>
+                    -{selectedPlanillaIds.size} planillas al lote
+                  </div>
                 </div>
                 <div>
-                  <span style={{ color: 'var(--text-muted)' }}>Usuario Autorizador:</span>
-                  <div style={{ fontWeight: 700 }}>{usuario?.email || 'operador@ont.gob.ve'}</div>
+                  <span style={{ color: 'var(--text-muted)' }}>Fecha / Banco:</span>
+                  <div className="mono" style={{ fontWeight: 700 }}>{fecha} (Banco {banco}){expediente ? ` · Exp ${expediente}` : ''}</div>
                 </div>
               </div>
 
