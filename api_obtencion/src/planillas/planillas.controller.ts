@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Param, HttpException, HttpStatus } from '@nestjs/common';
 import { PlanillasService } from './planillas.service';
 import type { PlanillasFilter, ConciliarPayload, RevertirPayload } from './planillas.service';
 
@@ -134,9 +134,31 @@ export class PlanillasController {
     try {
       const result = await this.planillasService.revertirPlanilla(payload);
       return result;
-    } catch (error) {
+    } catch (error: any) {
       throw new HttpException(
         { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error durante la reversión de la conciliación', message: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Post('lotes/:loteSeq/verificar-cierre')
+  async verificarYCerrarLote(
+    @Param('loteSeq') loteSeq: string,
+    @Query('anho') anho?: string,
+    @Body() body?: { usuario_operador?: string }
+  ) {
+    try {
+      const anhoNum = anho ? parseInt(anho, 10) : new Date().getFullYear();
+      const result = await this.planillasService.verificarYCerrarLote(
+        Number(loteSeq),
+        anhoNum,
+        body?.usuario_operador || 'BOT_ORQUESTADOR'
+      );
+      return result;
+    } catch (error: any) {
+      throw new HttpException(
+        { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error al verificar cierre de lote', message: error.message },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

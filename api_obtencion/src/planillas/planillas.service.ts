@@ -135,6 +135,7 @@ export class PlanillasService {
           AND NOT EXISTS (
             SELECT 1 FROM ORG_LIQ.PLANILLA P 
             WHERE P.PLANILLA_ID = T.PLANILLA 
+              AND P.FORMA_CODIGO = T.FORMA_CODIGO
               AND P.LOTE_SEQ = L.LOTE_SEQ 
               AND P.ANHO = L.ANHO
         )
@@ -165,6 +166,7 @@ export class PlanillasService {
           AND NOT EXISTS (
             SELECT 1 FROM ORG_LIQ.PLANILLA P 
             WHERE P.PLANILLA_ID = T.PLANILLA 
+              AND P.FORMA_CODIGO = T.FORMA_CODIGO
               AND P.LOTE_SEQ = L.LOTE_SEQ 
               AND P.ANHO = L.ANHO
         )
@@ -263,7 +265,8 @@ export class PlanillasService {
           montoTotal: Number(payload.monto) || 0,
           expediente: Number(payload.expediente) || 0,
           periodo,
-          outSeq: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER }
+          outSeq: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
+          outLoteCerrado: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER }
         };
 
         let detpSeq = 1;
@@ -291,6 +294,9 @@ export class PlanillasService {
           DECLARE
             v_ident VARCHAR2(30);
             v_seq NUMBER(6);
+            v_total_pln NUMBER;
+            v_conciliadas NUMBER;
+            v_lote_cerrado NUMBER := 0;
           BEGIN
             -- 1. Obtener RIF de TXT_SENIAT
             BEGIN
@@ -329,10 +335,34 @@ export class PlanillasService {
               AND FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD')
               AND INFN_CODIGO = :banco;
 
-            -- 6. Confirmar transaccion
+            -- 6. Verificar si el lote se completó (Planillas conciliadas >= TOTAL_PLN)
+            BEGIN
+              SELECT TOTAL_PLN INTO v_total_pln
+              FROM ORG_LIQ.LOTE
+              WHERE LOTE_SEQ = :loteSeq AND ANHO = :anho;
+
+              SELECT COUNT(*) INTO v_conciliadas
+              FROM ORG_LIQ.PLANILLA
+              WHERE LOTE_SEQ = :loteSeq AND ANHO = :anho;
+
+              IF v_conciliadas >= v_total_pln THEN
+                UPDATE ORG_LIQ.LOTE
+                SET ESTADO = 'V'
+                WHERE LOTE_SEQ = :loteSeq AND ANHO = :anho AND ESTADO = 'P';
+                IF SQL%ROWCOUNT > 0 THEN
+                  v_lote_cerrado := 1;
+                END IF;
+              END IF;
+            EXCEPTION
+              WHEN OTHERS THEN
+                NULL;
+            END;
+
+            -- 7. Confirmar transaccion
             COMMIT;
 
             :outSeq := v_seq;
+            :outLoteCerrado := v_lote_cerrado;
           END;
         `;
 
@@ -345,6 +375,20 @@ export class PlanillasService {
         );
 
         const planSeq = resultPlsql.outBinds?.outSeq || 1;
+        const loteCerrado = (resultPlsql.outBinds?.outLoteCerrado === 1);
+
+        if (loteCerrado) {
+          console.log(`[LOTE CERRADO] Lote SEQ ${payload.lote_seq} (Lote ${payload.lote_id}, Exp ${payload.expediente}) pasó a ESTADO 'V' automáticamente.`);
+          this.registrarAuditoriaJson({
+            planilla_id: payload.planilla_id,
+            accion: 'CIERRE_LOTE',
+            usuario: payload.usuario_operador,
+            expediente: payload.expediente || null,
+            lote_id: payload.lote_id || null,
+            monto_total: payload.monto,
+            detalles: `Lote SEQ ${payload.lote_seq} cerrado automáticamente (ESTADO = 'V') al alcanzar el 100% de planillas requeridas.`
+          }).catch(() => {});
+        }
         
         this.registrarAuditoriaJson({
           planilla_id: payload.planilla_id,
@@ -353,16 +397,19 @@ export class PlanillasService {
           expediente: payload.expediente || null,
           lote_id: payload.lote_id || null,
           monto_total: payload.monto,
-          detalles: `Forma: ${payload.forma} - Partidas: ${payload.asignaciones.length}`
+          detalles: `Forma: ${payload.forma} - Partidas: ${payload.asignaciones.length}${loteCerrado ? ' - [LOTE CERRADO AUTOMÁTICAMENTE]' : ''}`
         }).catch(() => {});
         
         return {
           status: 200,
-          message: 'Conciliación ejecutada exitosamente',
+          message: loteCerrado 
+            ? 'Conciliación ejecutada exitosamente. ¡El lote ha alcanzado el 100% y fue cerrado (ESTADO = V)!' 
+            : 'Conciliación ejecutada exitosamente',
           data: {
             planilla: payload.planilla_id,
             plan_seq_asignado: planSeq,
-            partidas_asignadas: payload.asignaciones.length
+            partidas_asignadas: payload.asignaciones.length,
+            lote_cerrado: loteCerrado
           }
         };
       } catch (error: any) {
@@ -567,10 +614,70 @@ export class PlanillasService {
         }
       }
 
+      // Evaluar cierre de lotes afectados que alcanzaron el 100%
+      const lotesCerrados: any[] = [];
+      if (exitosas > 0) {
+        const lotesMap = new Map<string, { loteSeq: number; anho: number; loteId: number; expediente: number }>();
+        for (const p of payloads) {
+          const anhoLote = parseInt(p.fecha_recaudacion.split('T')[0].split('-')[0], 10);
+          const key = `${p.lote_seq}_${anhoLote}`;
+          if (!lotesMap.has(key)) {
+            lotesMap.set(key, {
+              loteSeq: Number(p.lote_seq),
+              anho: anhoLote,
+              loteId: Number(p.lote_id),
+              expediente: Number(p.expediente)
+            });
+          }
+        }
+
+        for (const [, item] of lotesMap) {
+          try {
+            const checkLote = await this.executeWithTimeout(
+              connection,
+              `SELECT TOTAL_PLN, ESTADO FROM ORG_LIQ.LOTE WHERE ANHO = :anho AND LOTE_SEQ = :loteSeq`,
+              { anho: item.anho, loteSeq: item.loteSeq },
+              execOptions,
+              5000
+            );
+            const loteRow = (checkLote.rows as any[])?.[0];
+            const estadoActual = loteRow?.ESTADO ?? loteRow?.[1];
+            const totalPln = Number(loteRow?.TOTAL_PLN ?? loteRow?.[0] ?? 0);
+
+            if (estadoActual === 'P') {
+              const countRes = await this.executeWithTimeout(
+                connection,
+                `SELECT COUNT(*) AS CANT FROM ORG_LIQ.PLANILLA WHERE ANHO = :anho AND LOTE_SEQ = :loteSeq`,
+                { anho: item.anho, loteSeq: item.loteSeq },
+                execOptions,
+                5000
+              );
+              const cantConciliadas = Number((countRes.rows as any[])?.[0]?.CANT ?? (countRes.rows as any[])?.[0]?.[0] ?? 0);
+
+              if (cantConciliadas >= totalPln && totalPln > 0) {
+                await this.executeWithTimeout(
+                  connection,
+                  `UPDATE ORG_LIQ.LOTE SET ESTADO = 'V' WHERE ANHO = :anho AND LOTE_SEQ = :loteSeq AND ESTADO = 'P'`,
+                  { anho: item.anho, loteSeq: item.loteSeq },
+                  execOptions,
+                  5000
+                );
+                await connection.commit();
+                lotesCerrados.push({ lote_seq: item.loteSeq, lote_id: item.loteId, expediente: item.expediente });
+                console.log(`[CONCILIAR_LOTE] Lote SEQ ${item.loteSeq} cerrado a ESTADO 'V' (${cantConciliadas}/${totalPln} planillas).`);
+              }
+            }
+          } catch (loteCloseErr: any) {
+            console.warn(`[CONCILIAR_LOTE] Error evaluando cierre de lote SEQ ${item.loteSeq}:`, loteCloseErr.message);
+          }
+        }
+      }
+
       return {
         total: payloads.length,
         exitosas,
         fallidas,
+        lotes_cerrados: lotesCerrados,
         tiempo_total_ms: Date.now() - t0,
         resultados
       };
@@ -590,9 +697,9 @@ export class PlanillasService {
       
       const execOptions = { autoCommit: false };
 
-      // 0. Obtener data previa para auditoría
+      // 0. Obtener data previa para auditoría e integridad de lote
       const currentData = await connection.execute(
-        `SELECT EXPEDIENTE, LOTE_ID, MONTO FROM ORG_LIQ.PLANILLA WHERE PLANILLA_ID = :planilla`,
+        `SELECT EXPEDIENTE, LOTE_ID, LOTE_SEQ, ANHO, MONTO FROM ORG_LIQ.PLANILLA WHERE PLANILLA_ID = :planilla`,
         { planilla: payload.planilla_id },
         execOptions
       );
@@ -645,7 +752,42 @@ export class PlanillasService {
         throw new Error('No se encontró el registro original en TXT_SENIAT para revertir. Revise los parámetros de Banco y Fecha.');
       }
 
-      // 4. Confirmar Transacción
+      // 5. Integridad de Lote: Si el lote estaba en 'V' (cerrado) y ahora faltan planillas, reabrir a 'P'
+      const loteSeqRev = planillaData.LOTE_SEQ || planillaData[2];
+      const anhoRev = planillaData.ANHO || planillaData[3];
+      if (loteSeqRev && anhoRev) {
+        try {
+          const checkLote = await connection.execute(
+            `SELECT TOTAL_PLN, ESTADO FROM ORG_LIQ.LOTE WHERE ANHO = :anho AND LOTE_SEQ = :loteSeq`,
+            { anho: anhoRev, loteSeq: loteSeqRev },
+            execOptions
+          );
+          const loteRow = (checkLote.rows as any[])?.[0];
+          const estadoActual = loteRow?.ESTADO ?? loteRow?.[1];
+          const totalPln = Number(loteRow?.TOTAL_PLN ?? loteRow?.[0] ?? 0);
+
+          if (estadoActual === 'V') {
+            const countRes = await connection.execute(
+              `SELECT COUNT(*) AS CANT FROM ORG_LIQ.PLANILLA WHERE ANHO = :anho AND LOTE_SEQ = :loteSeq`,
+              { anho: anhoRev, loteSeq: loteSeqRev },
+              execOptions
+            );
+            const conciliadas = Number((countRes.rows as any[])?.[0]?.CANT ?? (countRes.rows as any[])?.[0]?.[0] ?? 0);
+            if (conciliadas < totalPln) {
+              await connection.execute(
+                `UPDATE ORG_LIQ.LOTE SET ESTADO = 'P' WHERE ANHO = :anho AND LOTE_SEQ = :loteSeq AND ESTADO = 'V'`,
+                { anho: anhoRev, loteSeq: loteSeqRev },
+                execOptions
+              );
+              console.log(`[LOTE REABIERTO] Lote SEQ ${loteSeqRev} volvió a ESTADO 'P' tras reversión de planilla.`);
+            }
+          }
+        } catch (reopenErr: any) {
+          console.warn(`[REVERSION] Error verificando reapertura de lote ${loteSeqRev}:`, reopenErr.message);
+        }
+      }
+
+      // 6. Confirmar Transacción
       await connection.commit();
 
       return {
@@ -667,6 +809,94 @@ export class PlanillasService {
         } catch (closeError) {
           console.error('Error cerrando la conexión al revertir planilla:', closeError);
         }
+      }
+    }
+  }
+
+  // Método público para verificar y cerrar un lote que ya alcanzó el 100% de planillas
+  async verificarYCerrarLote(loteSeq: number, anho: number, usuario: string = 'BOT_ORQUESTADOR') {
+    let connection;
+    try {
+      connection = await this.db.getConnection();
+      const execOptions: oracledb.ExecuteOptions = {
+        autoCommit: true,
+        outFormat: oracledb.OUT_FORMAT_OBJECT
+      };
+
+      const loteRes = await connection.execute(
+        `SELECT LOTE_ID, LOTE_SEQ, TOTAL_PLN, ESTADO, EXPEDIENTE, INFN_CODIGO, AGENCIA_CODIGO 
+         FROM ORG_LIQ.LOTE 
+         WHERE ANHO = :anho AND LOTE_SEQ = :loteSeq`,
+        { anho, loteSeq },
+        execOptions
+      );
+
+      const lote = (loteRes.rows as any[])?.[0];
+      if (!lote) {
+        throw new Error(`Lote SEQ ${loteSeq} para el año ${anho} no encontrado`);
+      }
+
+      const countRes = await connection.execute(
+        `SELECT COUNT(*) AS CANT FROM ORG_LIQ.PLANILLA WHERE ANHO = :anho AND LOTE_SEQ = :loteSeq`,
+        { anho, loteSeq },
+        execOptions
+      );
+      const conciliadas = Number((countRes.rows as any[])?.[0]?.CANT || 0);
+      const totalPln = Number(lote.TOTAL_PLN || 0);
+
+      const puedeCerrar = (conciliadas >= totalPln && totalPln > 0);
+
+      if (puedeCerrar && lote.ESTADO === 'P') {
+        await connection.execute(
+          `UPDATE ORG_LIQ.LOTE SET ESTADO = 'V' WHERE ANHO = :anho AND LOTE_SEQ = :loteSeq AND ESTADO = 'P'`,
+          { anho, loteSeq },
+          execOptions
+        );
+
+        this.registrarAuditoriaJson({
+          planilla_id: 'CIERRE_LOTE',
+          accion: 'CIERRE_LOTE',
+          usuario,
+          expediente: lote.EXPEDIENTE,
+          lote_id: lote.LOTE_ID,
+          monto_total: 0,
+          detalles: `Lote SEQ ${loteSeq} verificado y cerrado exitosamente (ESTADO 'P' -> 'V'). Total: ${totalPln}, Conciliadas: ${conciliadas}`
+        }).catch(() => {});
+
+        return {
+          success: true,
+          cerrado: true,
+          mensaje: `Lote SEQ ${loteSeq} (Lote ${lote.LOTE_ID}) cerrado exitosamente a ESTADO 'V'.`,
+          lote_seq: loteSeq,
+          lote_id: lote.LOTE_ID,
+          expediente: lote.EXPEDIENTE,
+          anho,
+          total_pln: totalPln,
+          conciliadas,
+          estado_anterior: 'P',
+          estado_nuevo: 'V'
+        };
+      }
+
+      return {
+        success: true,
+        cerrado: lote.ESTADO === 'V',
+        mensaje: lote.ESTADO === 'V' 
+          ? `El lote SEQ ${loteSeq} ya se encontraba cerrado (ESTADO = 'V').`
+          : `El lote SEQ ${loteSeq} aún tiene planillas faltantes (${totalPln - conciliadas} faltantes).`,
+        lote_seq: loteSeq,
+        lote_id: lote.LOTE_ID,
+        expediente: lote.EXPEDIENTE,
+        anho,
+        total_pln: totalPln,
+        conciliadas,
+        estado: lote.ESTADO
+      };
+    } finally {
+      if (connection) {
+        try {
+          await connection.close();
+        } catch {}
       }
     }
   }

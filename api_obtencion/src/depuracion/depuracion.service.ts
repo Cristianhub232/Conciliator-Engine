@@ -52,6 +52,7 @@ export interface LoteAjustadoInfo {
   total_anterior: number;
   depuradas: number;
   total_nuevo: number;
+  lote_cerrado?: boolean;
 }
 
 export interface EjecutarDepuracionPayload {
@@ -467,6 +468,29 @@ export class DepuracionService {
         );
         const nuevoTotal = (checkLoteRes.rows as any[])?.[0]?.TOTAL_PLN ?? Math.max(0, lote.total_anterior - lote.depuradasCount);
 
+        // Evaluar si el nuevo total del lote ya fue completado por planillas conciliadas
+        let loteCerrado = false;
+        try {
+          const countConc = await connection.execute(
+            `SELECT COUNT(*) AS CANT FROM ORG_LIQ.PLANILLA WHERE ANHO = :anho AND LOTE_SEQ = :loteSeq`,
+            { anho: lote.anho, loteSeq: lote.lote_seq },
+            { outFormat: oracledb.OUT_FORMAT_OBJECT }
+          );
+          const cantConc = Number((countConc.rows as any[])?.[0]?.CANT ?? 0);
+          if (cantConc >= Number(nuevoTotal) && Number(nuevoTotal) > 0) {
+            const updLote = await connection.execute(
+              `UPDATE ORG_LIQ.LOTE SET ESTADO = 'V' WHERE ANHO = :anho AND LOTE_SEQ = :loteSeq AND ESTADO = 'P'`,
+              { anho: lote.anho, loteSeq: lote.lote_seq }
+            );
+            if ((updLote.rowsAffected || 0) > 0) {
+              loteCerrado = true;
+              console.log(`[DEPURACION] Lote SEQ ${lote.lote_seq} cerrado a ESTADO 'V' al ajustar total a ${nuevoTotal} (Conciliadas: ${cantConc}).`);
+            }
+          }
+        } catch (closeCheckErr: any) {
+          console.warn(`[DEPURACION] Error verificando cierre de lote ${lote.lote_seq}:`, closeCheckErr.message);
+        }
+
         lotesAjustados.push({
           anho: lote.anho,
           lote_seq: lote.lote_seq,
@@ -475,7 +499,8 @@ export class DepuracionService {
           agencia_codigo: lote.agencia_codigo,
           total_anterior: lote.total_anterior,
           depuradas: lote.depuradasCount,
-          total_nuevo: Number(nuevoTotal)
+          total_nuevo: Number(nuevoTotal),
+          lote_cerrado: loteCerrado
         });
       }
 
@@ -714,6 +739,29 @@ export class DepuracionService {
         );
         const nuevoTotal = (checkLoteRes.rows as any[])?.[0]?.TOTAL_PLN ?? Math.max(0, lote.total_anterior - lote.depuradasCount);
 
+        // Evaluar si el nuevo total del lote ya fue completado por planillas conciliadas
+        let loteCerrado = false;
+        try {
+          const countConc = await connection.execute(
+            `SELECT COUNT(*) AS CANT FROM ORG_LIQ.PLANILLA WHERE ANHO = :anho AND LOTE_SEQ = :loteSeq`,
+            { anho: lote.anho, loteSeq: lote.lote_seq },
+            { outFormat: oracledb.OUT_FORMAT_OBJECT }
+          );
+          const cantConc = Number((countConc.rows as any[])?.[0]?.CANT ?? 0);
+          if (cantConc >= Number(nuevoTotal) && Number(nuevoTotal) > 0) {
+            const updLote = await connection.execute(
+              `UPDATE ORG_LIQ.LOTE SET ESTADO = 'V' WHERE ANHO = :anho AND LOTE_SEQ = :loteSeq AND ESTADO = 'P'`,
+              { anho: lote.anho, loteSeq: lote.lote_seq }
+            );
+            if ((updLote.rowsAffected || 0) > 0) {
+              loteCerrado = true;
+              console.log(`[DEPURACION] Lote SEQ ${lote.lote_seq} cerrado a ESTADO 'V' al ajustar total a ${nuevoTotal} (Conciliadas: ${cantConc}).`);
+            }
+          }
+        } catch (closeCheckErr: any) {
+          console.warn(`[DEPURACION] Error verificando cierre de lote ${lote.lote_seq}:`, closeCheckErr.message);
+        }
+
         lotesAjustados.push({
           anho: lote.anho,
           lote_seq: lote.lote_seq,
@@ -722,7 +770,8 @@ export class DepuracionService {
           agencia_codigo: lote.agencia_codigo,
           total_anterior: lote.total_anterior,
           depuradas: lote.depuradasCount,
-          total_nuevo: Number(nuevoTotal)
+          total_nuevo: Number(nuevoTotal),
+          lote_cerrado: loteCerrado
         });
       }
 
