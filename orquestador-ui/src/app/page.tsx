@@ -15,6 +15,7 @@ import { DepuracionView } from '../components/DepuracionView';
 import { UsuariosView } from '../components/UsuariosView';
 import { ConfiguracionView } from '../components/ConfiguracionView';
 import { BotConfigView } from '../components/BotConfigView';
+import { ResumenOperacionModal, ResumenOperacionData } from '../components/ResumenOperacionModal';
 
 function OrquestadorPageInner() {
   const { isAuthenticated, loading: authLoading, usuario } = useAuth();
@@ -43,6 +44,7 @@ function OrquestadorPageInner() {
   // Mass actions
   const [isMassAuthorizing, setIsMassAuthorizing] = useState(false);
   const [isMappingAll, setIsMappingAll] = useState(false);
+  const [resumenModal, setResumenModal] = useState<ResumenOperacionData | null>(null);
   const [massProgress, setMassProgress] = useState<{ total: number; current: number; successes: number; failures: number }>({
     total: 0, current: 0, successes: 0, failures: 0
   });
@@ -272,6 +274,8 @@ function OrquestadorPageInner() {
     setIsMappingAll(true);
     setMappingProgress({ total: pendientesDeMapeo.length, current: 0, successes: 0, failures: 0 });
     let successes = 0, failures = 0, current = 0;
+    const formasMapeadasMap = new Map<string, { count: number; monto: number }>();
+    let montoTotalMapeado = 0;
 
     const chunkSize = 5;
     for (let i = 0; i < pendientesDeMapeo.length; i += chunkSize) {
@@ -285,14 +289,40 @@ function OrquestadorPageInner() {
         setStoppedByUser(true);
         break;
       }
-      results.forEach(r => {
+      results.forEach((r, idx) => {
         if (r.cancelled) return;
         current++;
-        if (r.success) successes++; else failures++;
+        if (r.success) {
+          successes++;
+          const p = chunk[idx];
+          const monto = Number(p.MONTO_EFECTIVO || 0);
+          montoTotalMapeado += monto;
+          const formaKey = String(p.FORMA);
+          const prev = formasMapeadasMap.get(formaKey) || { count: 0, monto: 0 };
+          formasMapeadasMap.set(formaKey, { count: prev.count + 1, monto: prev.monto + monto });
+        } else {
+          failures++;
+        }
       });
       setMappingProgress({ total: pendientesDeMapeo.length, current, successes, failures });
     }
     setIsMappingAll(false);
+
+    if (!stopProcessRef.current && current > 0) {
+      setResumenModal({
+        tipo: 'MAPEO',
+        total: pendientesDeMapeo.length,
+        exitosas: successes,
+        fallidas: failures,
+        montoTotal: montoTotalMapeado,
+        desgloseFormas: Array.from(formasMapeadasMap.entries()).map(([forma, d]) => ({
+          forma,
+          cantidad: d.count,
+          monto: d.monto,
+          auditada: !!formasAuditoria[forma]?.auditada
+        }))
+      });
+    }
   };
 
   // Conciliación Masiva Secuencial Atómica con Soporte de Detención Inmediata
@@ -319,6 +349,9 @@ function OrquestadorPageInner() {
     setIsMassAuthorizing(true);
     setMassProgress({ total: seleccionadas.length, current: 0, successes: 0, failures: 0 });
     let successes = 0, failures = 0;
+    const lotesCerradosSet = new Set<string>();
+    const lotesAfectadosMap = new Map<string, { loteId: number; loteSeq: number; exitosas: number; cerrado: boolean }>();
+    let montoTotalConciliado = 0;
 
     for (let i = 0; i < seleccionadas.length; i++) {
       if (stopProcessRef.current) {
@@ -353,7 +386,7 @@ function OrquestadorPageInner() {
           asignaciones: (mapState.data?.asignaciones || []).map((a: any) => ({ partida: a.cod_partida || a.partida, monto: Number(a.monto) || 0 }))
         };
 
-        await axios.post(`/api/orquestador/planillas/conciliar`, payload, {
+        const res = await axios.post(`/api/orquestador/planillas/conciliar`, payload, {
           signal: abortControllerRef.current.signal,
           timeout: 45000
         });
@@ -361,6 +394,18 @@ function OrquestadorPageInner() {
         setAuthStates(prev => ({ ...prev, [id]: { isAuthorizing: false, status: 'success' } }));
         setSuccessStates(prev => ({ ...prev, [id]: true }));
         successes++;
+        montoTotalConciliado += Number(p.MONTO_EFECTIVO || 0);
+
+        const loteKey = `${p.LOTE_SEQ}`;
+        const prevLote = lotesAfectadosMap.get(loteKey) || { loteId: Number(p.LOTE_ID), loteSeq: Number(p.LOTE_SEQ), exitosas: 0, cerrado: false };
+        prevLote.exitosas++;
+
+        if (res.data?.data?.lote_cerrado) {
+          prevLote.cerrado = true;
+          lotesCerradosSet.add(`Lote ${p.LOTE_ID} (SEQ: ${p.LOTE_SEQ})`);
+        }
+        lotesAfectadosMap.set(loteKey, prevLote);
+
         setSelectedPlanillas(prev => { const n = new Set(prev); n.delete(id); return n; });
       } catch (err: any) {
         if (axios.isCancel(err) || stopProcessRef.current) {
@@ -375,6 +420,18 @@ function OrquestadorPageInner() {
       setMassProgress({ total: seleccionadas.length, current: i + 1, successes, failures });
     }
     setIsMassAuthorizing(false);
+
+    if (!stopProcessRef.current && (successes > 0 || failures > 0)) {
+      setResumenModal({
+        tipo: 'CONCILIACION',
+        total: seleccionadas.length,
+        exitosas: successes,
+        fallidas: failures,
+        montoTotal: montoTotalConciliado,
+        lotesCerrados: Array.from(lotesCerradosSet),
+        lotesAfectados: Array.from(lotesAfectadosMap.values())
+      });
+    }
   };
 
   const clearFilters = () => { setSelectedForma(null); setSelectedExp(null); setFilterOnlyErrors(false); };
@@ -1281,6 +1338,13 @@ function OrquestadorPageInner() {
           </div>
         )}
       </main>
+
+      {/* Modal Popup de Resumen Operacional (Mapeo / Conciliación) */}
+      <ResumenOperacionModal 
+        data={resumenModal} 
+        onClose={() => setResumenModal(null)} 
+        onProcederConciliar={autorizarMasivo}
+      />
     </div>
   );
 }
