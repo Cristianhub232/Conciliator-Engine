@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Search, CheckCircle, AlertCircle, Layers, ServerCog, Filter, X, Loader2, Square, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Search, CheckCircle, AlertCircle, Layers, ServerCog, Filter, X, Loader2, Square, AlertTriangle, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { SplashLoader } from '../components/SplashLoader';
 import { LoginView } from '../components/LoginView';
@@ -17,53 +17,135 @@ import { ConfiguracionView } from '../components/ConfiguracionView';
 import { BotConfigView } from '../components/BotConfigView';
 
 function OrquestadorPageInner() {
-  const { isAuthenticated, loading: authLoading } = useAuth();
+  const { isAuthenticated, loading: authLoading, usuario } = useAuth();
   const [showSplash, setShowSplash] = useState(true);
   const [activeTab, setActiveTab] = useState<NavTab>('conciliacion');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const [fecha, setFecha] = useState('2024-04-15');
   const [banco, setBanco] = useState('105');
+  const [searchLote, setSearchLote] = useState('');
   const [estado, setEstado] = useState('ASIGNADAS');
   const [limit, setLimit] = useState(500);
 
+  // Data
   const [planillas, setPlanillas] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [depuracionAlert, setDepuracionAlert] = useState<any>(null);
   const [depuracionError, setDepuracionError] = useState<string | null>(null);
-  const [mappingStates, setMappingStates] = useState<Record<string, any>>({});
-  const [authStates, setAuthStates] = useState<Record<string, any>>({});
-  const [successStates, setSuccessStates] = useState<Record<string, any>>({});
 
-  // Mass selection
-  const [selectedPlanillas, setSelectedPlanillas] = useState(new Set());
+  // States
+  const [mappingStates, setMappingStates] = useState<Record<number, any>>({});
+  const [authStates, setAuthStates] = useState<Record<number, any>>({});
+  const [successStates, setSuccessStates] = useState<Record<number, boolean>>({});
+
+  // Mass actions
   const [isMassAuthorizing, setIsMassAuthorizing] = useState(false);
-  const [massProgress, setMassProgress] = useState({ total: 0, current: 0, successes: 0, failures: 0 });
-
-  // Mapping Progress
   const [isMappingAll, setIsMappingAll] = useState(false);
-  const [mappingProgress, setMappingProgress] = useState({ total: 0, current: 0, successes: 0, failures: 0 });
-
-  // Control de Detención de Proceso
-  const stopProcessRef = useRef(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const [massProgress, setMassProgress] = useState<{ total: number; current: number; successes: number; failures: number }>({
+    total: 0, current: 0, successes: 0, failures: 0
+  });
+  const [mappingProgress, setMappingProgress] = useState<{ total: number; current: number; successes: number; failures: number }>({
+    total: 0, current: 0, successes: 0, failures: 0
+  });
   const [stoppedByUser, setStoppedByUser] = useState(false);
+  const stopProcessRef = useRef<boolean>(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Interactive filters
+  // Selection & Filters
+  const [selectedPlanillas, setSelectedPlanillas] = useState<Set<number>>(new Set());
   const [selectedForma, setSelectedForma] = useState<string | null>(null);
+  const [selectedLote, setSelectedLote] = useState<string | null>(null);
   const [selectedExp, setSelectedExp] = useState<any>(null);
   const [filterOnlyErrors, setFilterOnlyErrors] = useState(false);
 
+  // Auditoría de Formas (PostgreSQL motor_app.formas_auditoria)
+  const [formasAuditoria, setFormasAuditoria] = useState<Record<string, any>>({});
+  const [auditingForma, setAuditingForma] = useState<string | null>(null);
+  const [auditFeedback, setAuditFeedback] = useState<{ forma: string; message: string } | null>(null);
+
+  const loadFormasAuditoria = async () => {
+    try {
+      const res = await axios.get('/api/orquestador/formas-auditoria');
+      if (res.data?.formas) {
+        setFormasAuditoria(res.data.formas);
+      }
+    } catch (e) {
+      console.warn('Error cargando auditoría de formas:', e);
+    }
+  };
+
+  useEffect(() => {
+    loadFormasAuditoria();
+  }, []);
+
+  const handleCertificarFormaRapido = async (codForma: string) => {
+    setAuditingForma(codForma);
+    try {
+      const userNombre = usuario ? `${usuario.nombre || ''} ${usuario.apellido || ''}`.trim() || usuario.email : 'Especialista Conciliación';
+      const res = await axios.post(`/api/orquestador/formas-auditoria/${codForma}`, {
+        auditada: true,
+        usuario_auditor: userNombre,
+        observaciones: 'Auditada y aprobada directamente desde el Motor de Conciliación',
+        version_auditada: 1
+      });
+      if (res.data?.success) {
+        setFormasAuditoria(prev => ({
+          ...prev,
+          [codForma]: res.data.data
+        }));
+
+        // Calcular formas restantes sin auditar en el lote
+        const restantes = formasPresentes.filter(f => f !== codForma && !formasAuditoria[f]?.auditada);
+        if (restantes.length > 0) {
+          const siguiente = restantes[0];
+          setSelectedForma(siguiente);
+          setAuditFeedback({
+            forma: codForma,
+            message: `✓ Forma ${codForma} auditada con éxito. Continuando con la siguiente forma pendiente: ${siguiente}.`
+          });
+        } else {
+          setSelectedForma(null);
+          setAuditFeedback({
+            forma: codForma,
+            message: `✓ Forma ${codForma} auditada con éxito. ¡Todas las formas de este lote están ahora auditadas y listas para conciliar!`
+          });
+        }
+        setTimeout(() => setAuditFeedback(null), 6000);
+      }
+    } catch (err: any) {
+      alert('Error al auditar la forma ' + codForma + ': ' + (err.response?.data?.message || err.message));
+    } finally {
+      setAuditingForma(null);
+    }
+  };
+
   // --- Derived ---
-  const formasCount = planillas.reduce((acc, p) => {
+  const lotesCount = planillas.reduce((acc, p) => {
+    const l = p.LOTE_ID != null ? String(p.LOTE_ID) : 'S/L';
+    acc[l] = (acc[l] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  // Formas disponibles ajustadas según el lote seleccionado (para reflejar la distribución del lote activo)
+  const planillasParaFormas = selectedLote 
+    ? planillas.filter(p => String(p.LOTE_ID ?? 'S/L') === selectedLote) 
+    : planillas;
+
+  const formasCount = planillasParaFormas.reduce((acc, p) => {
     acc[p.FORMA] = (acc[p.FORMA] || 0) + 1;
     return acc;
-  }, {});
-  const expedientesUnicos = [...new Set(planillas.map(p => p.EXPEDIENTE).filter(Boolean))];
+  }, {} as Record<string, number>);
+
+  // Formas únicas en el lote y control de auditoría
+  const formasPresentes = Object.keys(formasCount);
+  const formasNoAuditadas = formasPresentes.filter(f => !formasAuditoria[f]?.auditada);
+
   const planillasFiltradas = planillas.filter(p => {
     const id = p.NRO_PLANILLA_FALTANTE;
     if (selectedForma && p.FORMA !== selectedForma) return false;
+    if (selectedLote && String(p.LOTE_ID ?? 'S/L') !== selectedLote) return false;
     if (selectedExp && p.EXPEDIENTE !== selectedExp) return false;
     if (filterOnlyErrors) {
       const isAuthErr = authStates[id]?.status === 'error';
@@ -72,8 +154,10 @@ function OrquestadorPageInner() {
     }
     return true;
   });
+
+  const expedientesUnicos = [...new Set(planillasFiltradas.map(p => p.EXPEDIENTE).filter(Boolean))];
   const totalMonto = planillasFiltradas.reduce((s, p) => s + (p.MONTO_EFECTIVO || 0), 0);
-  const hasActiveFilter = Boolean(selectedForma || selectedExp || filterOnlyErrors);
+  const hasActiveFilter = Boolean(selectedForma || selectedLote || selectedExp || filterOnlyErrors);
 
   // --- Handlers ---
   const handleSearch = async (e: any) => {
@@ -81,6 +165,7 @@ function OrquestadorPageInner() {
     setLoading(true);
     setError(null);
     setSelectedForma(null);
+    setSelectedLote(null);
     setSelectedExp(null);
     setSelectedPlanillas(new Set());
     setAuthStates({});
@@ -90,19 +175,29 @@ function OrquestadorPageInner() {
     setDepuracionError(null);
     setStoppedByUser(false);
     try {
-      const [res, depScanRes] = await Promise.all([
+      const [res, depScanRes, auditRes] = await Promise.all([
         axios.get(`/api/orquestador/planillas/pendientes`, {
-          params: { fecha, banco, estado_asignacion: estado, limit }
+          params: { 
+            fecha, 
+            banco, 
+            estado_asignacion: estado, 
+            limit,
+            lote_id: searchLote.trim() || undefined
+          }
         }),
         axios.get(`/api/orquestador/depuracion/scan`, {
           params: { fecha, banco }
         }).catch((err: any) => {
           const msg = err.response?.data?.message || err.message || 'Error al conectar con Oracle';
           return { error: msg, data: { total_detectadas: 0 } };
-        })
+        }),
+        axios.get(`/api/orquestador/formas-auditoria`).catch(() => ({ data: { formas: {} } }))
       ]);
 
       setPlanillas(res.data.data || []);
+      if (auditRes.data?.formas) {
+        setFormasAuditoria(auditRes.data.formas);
+      }
       if ((depScanRes as any).error) {
         setDepuracionError((depScanRes as any).error);
       } else if (depScanRes.data && depScanRes.data.total_detectadas > 0) {
@@ -207,6 +302,16 @@ function OrquestadorPageInner() {
       : planillasFiltradas.filter(p => !successStates[p.NRO_PLANILLA_FALTANTE]);
 
     if (seleccionadas.length === 0) return;
+
+    // Control de Auditoría: Advertir si hay planillas con formas no auditadas
+    const noAuditadas = seleccionadas.filter(p => !formasAuditoria[p.FORMA]?.auditada);
+    if (noAuditadas.length > 0) {
+      const formasUnicasNoAuditadas = [...new Set(noAuditadas.map(p => p.FORMA))];
+      const proceed = window.confirm(
+        `⚠️ ADVERTENCIA DE CONTROL DE AUDITORÍA\n\nEl lote seleccionado contiene ${noAuditadas.length} planilla(s) cuyas formas tributarias están PENDIENTES DE AUDITORÍA (${formasUnicasNoAuditadas.join(', ')}).\n\n¿Está seguro de que desea proceder con la imputación presupuestaria a pesar de que el contrato de estas formas aún no ha sido auditado?`
+      );
+      if (!proceed) return;
+    }
 
     stopProcessRef.current = false;
     abortControllerRef.current = new AbortController();
@@ -345,6 +450,17 @@ function OrquestadorPageInner() {
           <div className="field">
             <label className="field-label">Banco</label>
             <input type="text" value={banco} onChange={e => setBanco(e.target.value)} required placeholder="Ej: 105" className="input-field mono" />
+          </div>
+          <div className="field">
+            <label className="field-label">N° Lote (Opcional)</label>
+            <input 
+              type="text" 
+              value={searchLote} 
+              onChange={e => setSearchLote(e.target.value)} 
+              placeholder="Todos los lotes" 
+              className="input-field mono" 
+              title="Filtrar por número de lote específico en base de datos"
+            />
           </div>
           <div className="field">
             <label className="field-label">Estado de Lote</label>
@@ -504,10 +620,17 @@ function OrquestadorPageInner() {
             <div style={{ padding: '15px 16px', background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px' }}>
               <div style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#8797A8' }}>EXPEDIENTES</div>
               <div style={{ marginTop: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '27px', fontWeight: 600, letterSpacing: '-0.02em', color: '#14263C' }}>
-                {expedientesUnicos[0] || planillas[0]?.EXPEDIENTE || '1'}
+                {expedientesUnicos.length === 1 ? expedientesUnicos[0] : expedientesUnicos.length > 1 ? `${expedientesUnicos.length} Exps` : (planillas[0]?.EXPEDIENTE || '1')}
               </div>
               <div style={{ marginTop: '5px', fontSize: '11.5px', fontWeight: 600, color: '#6B7C90' }}>
-                Lote {planillas[0]?.LOTE_ID || '1'} · Banco {banco}
+                {selectedLote 
+                  ? `Lote ${selectedLote} (Filtrado)` 
+                  : Object.keys(lotesCount).length === 1 
+                    ? `Lote ${Object.keys(lotesCount)[0]}` 
+                    : Object.keys(lotesCount).length > 1 
+                      ? `${Object.keys(lotesCount).length} Lotes activos` 
+                      : `Lote ${planillas[0]?.LOTE_ID || '1'}`
+                } · Banco {banco}
               </div>
             </div>
 
@@ -542,7 +665,7 @@ function OrquestadorPageInner() {
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '18px 16px' }}>
                 {Object.entries(formasCount).slice(0, 4).map(([formaCode, count], idx) => {
-                  const formaMonto = planillas.filter(p => p.FORMA === formaCode).reduce((acc, p) => acc + (p.MONTO_EFECTIVO || 0), 0);
+                  const formaMonto = planillasFiltradas.filter(p => p.FORMA === formaCode).reduce((acc, p) => acc + (p.MONTO_EFECTIVO || 0), 0);
                   const pct = totalMonto > 0 ? Math.min(100, Math.round((formaMonto / totalMonto) * 100)) : 25;
                   const barColors = ['#1E5C99', '#2C7BC0', '#3FB4A8', '#8CC63F'];
                   return (
@@ -604,20 +727,62 @@ function OrquestadorPageInner() {
           </div>
 
           <div className="filter-bar">
+            {/* Filtro por Forma con Estado de Auditoría */}
             <div className="filter-group">
               <span className="filter-group-label"><Filter size={13} /> Forma</span>
-              {Object.entries(formasCount).map(([forma, cant]) => (
-                <button
-                  key={forma}
-                  onClick={() => setSelectedForma(selectedForma === forma ? null : forma)}
-                  className={`chip ${selectedForma === forma ? 'chip-active' : ''}`}
-                >
-                  {forma} <span className="chip-count">{String(cant)}</span>
-                </button>
-              ))}
+              {Object.entries(formasCount).map(([forma, cant]) => {
+                const isAudited = Boolean(formasAuditoria[forma]?.auditada);
+                return (
+                  <button
+                    key={forma}
+                    onClick={() => setSelectedForma(selectedForma === forma ? null : forma)}
+                    className={`chip ${selectedForma === forma ? 'chip-active' : ''}`}
+                    style={
+                      selectedForma !== forma
+                        ? isAudited
+                          ? { borderLeft: '3px solid #10b981' }
+                          : { borderLeft: '3px solid #f59e0b' }
+                        : {}
+                    }
+                    title={
+                      isAudited
+                        ? `Forma ${forma}: Contrato auditado y verificado (v${formasAuditoria[forma]?.version_auditada ?? 1})`
+                        : `Forma ${forma}: PENDIENTE DE AUDITORÍA (Contrato forma-presupuesto no certificado)`
+                    }
+                  >
+                    {forma} <span className="chip-count">{String(cant)}</span>
+                    {isAudited ? (
+                      <CheckCircle2 size={11} style={{ color: '#10b981', marginLeft: 2 }} />
+                    ) : (
+                      <AlertTriangle size={11} style={{ color: '#f59e0b', marginLeft: 2 }} />
+                    )}
+                  </button>
+                );
+              })}
               {selectedForma && (
                 <button onClick={() => setSelectedForma(null)} className="chip chip-clear">
                   <X size={12} /> Limpiar Forma
+                </button>
+              )}
+              {formasNoAuditadas.length > 0 && (
+                <button
+                  onClick={() => {
+                    if (selectedForma && !formasAuditoria[selectedForma]?.auditada) {
+                      setSelectedForma(null);
+                    } else {
+                      setSelectedForma(formasNoAuditadas[0]);
+                    }
+                  }}
+                  className="chip"
+                  style={{
+                    background: '#fffbeb',
+                    borderColor: '#fde68a',
+                    color: '#b45309',
+                    fontWeight: 600
+                  }}
+                  title="Filtrar por formas con contrato pendiente de auditar"
+                >
+                  <AlertTriangle size={12} /> {formasNoAuditadas.length} por auditar
                 </button>
               )}
               {filterOnlyErrors && (
@@ -626,6 +791,29 @@ function OrquestadorPageInner() {
                 </button>
               )}
             </div>
+
+            {/* Filtro interactivo por Lote */}
+            {Object.keys(lotesCount).length > 0 && (
+              <div className="filter-group">
+                <span className="filter-group-label"><Layers size={13} /> Lote</span>
+                {Object.entries(lotesCount).map(([loteId, cant]) => (
+                  <button
+                    key={loteId}
+                    onClick={() => setSelectedLote(selectedLote === loteId ? null : loteId)}
+                    className={`chip ${selectedLote === loteId ? 'chip-active' : ''}`}
+                    title={`Filtrar solo planillas del Lote ${loteId}`}
+                  >
+                    Lote {loteId} <span className="chip-count">{String(cant)}</span>
+                  </button>
+                ))}
+                {selectedLote && (
+                  <button onClick={() => setSelectedLote(null)} className="chip chip-clear">
+                    <X size={12} /> Limpiar Lote
+                  </button>
+                )}
+              </div>
+            )}
+
             {expedientesUnicos.length > 0 && (
               <div className="exp-info">
                 <span className="exp-info-label">EXPEDIENTE</span>
@@ -635,6 +823,96 @@ function OrquestadorPageInner() {
               </div>
             )}
           </div>
+
+          {/* ── Toast de Feedback de Auditoría en Vivo ── */}
+          {auditFeedback && (
+            <div className="audit-feedback-toast">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <CheckCircle2 size={16} style={{ color: '#10b981', flexShrink: 0 }} />
+                <span>{auditFeedback.message}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAuditFeedback(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#065f46', padding: 2, display: 'flex' }}
+                title="Cerrar notificación"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
+
+          {/* ── Banner de Control de Calidad: Formas pendientes de auditar en el Lote ── */}
+          {planillas.length > 0 && formasNoAuditadas.length > 0 && (
+            <div className="audit-warning-banner">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <AlertTriangle size={16} style={{ color: '#d97706', flexShrink: 0 }} />
+                <span>
+                  <strong>Control de Calidad:</strong> Hay <strong>{formasNoAuditadas.length} forma(s)</strong> en este lote con contrato forma-presupuesto <strong>pendiente de auditar</strong>:{' '}
+                  {formasNoAuditadas.map(f => (
+                    <button
+                      key={f}
+                      type="button"
+                      onClick={() => setSelectedForma(selectedForma === f ? null : f)}
+                      style={{
+                        fontFamily: 'monospace',
+                        fontWeight: 700,
+                        margin: '0 3px',
+                        padding: '1px 6px',
+                        background: selectedForma === f ? '#f59e0b' : '#fef3c7',
+                        color: selectedForma === f ? '#ffffff' : '#92400e',
+                        border: '1px solid #fcd34d',
+                        borderRadius: '3px',
+                        cursor: 'pointer'
+                      }}
+                      title={`Clic para ver las planillas de la forma ${f}`}
+                    >
+                      {f}
+                    </button>
+                  ))}.
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                {(() => {
+                  const targetForma = (selectedForma && formasNoAuditadas.includes(selectedForma))
+                    ? selectedForma
+                    : formasNoAuditadas[0];
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => handleCertificarFormaRapido(targetForma)}
+                      disabled={auditingForma === targetForma}
+                      className="btn-audit-banner-action"
+                      title={`Aprobar y auditar forma ${targetForma} directamente y continuar con la siguiente`}
+                    >
+                      {auditingForma === targetForma ? (
+                        <RefreshCw size={13} className="spin" />
+                      ) : (
+                        <CheckCircle2 size={13} />
+                      )}
+                      <span>Ok, Auditar {targetForma} y Continuar</span>
+                    </button>
+                  );
+                })()}
+                <button
+                  type="button"
+                  onClick={() => setSelectedForma(selectedForma === formasNoAuditadas[0] ? null : formasNoAuditadas[0])}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#b45309',
+                    fontWeight: 700,
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {selectedForma === formasNoAuditadas[0] ? 'Mostrar todas' : `Filtrar ${formasNoAuditadas[0]}`}
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* ── Aviso de Proceso Detenido por el Usuario ── */}
           {stoppedByUser && !isMassAuthorizing && !isMappingAll && (
@@ -886,11 +1164,62 @@ function OrquestadorPageInner() {
                           <div className="cell-planilla">
                             <span className="cell-id">{id}</span>
                             <span className="cell-sub">RIF {p.RIF}</span>
-                            <span className="cell-sub">Exp {p.EXPEDIENTE || '—'} · Lote {p.LOTE_ID}</span>
+                            <span className="cell-sub">
+                              Exp {p.EXPEDIENTE || '—'} ·{' '}
+                              <span
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const targetLote = String(p.LOTE_ID ?? '');
+                                  if (targetLote) {
+                                    setSelectedLote(selectedLote === targetLote ? null : targetLote);
+                                  }
+                                }}
+                                style={{ cursor: 'pointer', textDecoration: selectedLote === String(p.LOTE_ID) ? 'underline' : 'none', fontWeight: selectedLote === String(p.LOTE_ID) ? 800 : 600, color: selectedLote === String(p.LOTE_ID) ? '#123A69' : 'inherit' }}
+                                title={`Filtrar por Lote ${p.LOTE_ID}`}
+                              >
+                                Lote {p.LOTE_ID}
+                              </span>
+                            </span>
                           </div>
                         </td>
                         <td>
-                          <span className="badge badge-info">{p.FORMA}</span>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                            <span className="badge badge-info">{p.FORMA}</span>
+                            {formasAuditoria[p.FORMA]?.auditada ? (
+                              <span
+                                className="badge-audit-ok"
+                                title={`Auditada por ${formasAuditoria[p.FORMA]?.usuario_auditor || 'Especialista'} (${new Date(formasAuditoria[p.FORMA]?.fecha_auditoria || '').toLocaleDateString('es-VE')})`}
+                              >
+                                <CheckCircle2 size={10} /> Auditada
+                              </span>
+                            ) : (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                                <span
+                                  className="badge-audit-warn"
+                                  title="Contrato forma-presupuesto aún no verificado en el catálogo"
+                                >
+                                  <AlertTriangle size={10} /> Por Auditar
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCertificarFormaRapido(p.FORMA);
+                                  }}
+                                  className="btn-quick-audit-row"
+                                  title={`Validar forma ${p.FORMA} ahora y continuar con la siguiente`}
+                                  disabled={auditingForma === p.FORMA}
+                                >
+                                  {auditingForma === p.FORMA ? (
+                                    <RefreshCw size={10} className="spin" />
+                                  ) : (
+                                    <CheckCircle2 size={10} />
+                                  )}
+                                  <span>Ok, Auditar</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </td>
                         <td className="cell-money">
                           {p.MONTO_EFECTIVO.toLocaleString('es-VE', { minimumFractionDigits: 2 })}

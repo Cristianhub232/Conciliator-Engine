@@ -11,6 +11,7 @@ import { PipelineModule } from './pipeline/pipeline.module';
 import { IaModule } from './ia/ia.module';
 import { TelegramModule } from './telegram/telegram.module';
 import { BotConfigModule } from './bot-config/bot-config.module';
+import { FormasAuditoriaModule } from './formas-auditoria/formas-auditoria.module';
 import { ConfigModule } from '@nestjs/config';
 import * as path from 'path';
 import { loadRequiredEnvironment } from './config/env-loader';
@@ -31,7 +32,8 @@ import { loadRequiredEnvironment } from './config/env-loader';
     PipelineModule,
     IaModule,
     TelegramModule,
-    BotConfigModule
+    BotConfigModule,
+    FormasAuditoriaModule
   ],
   controllers: [AppController],
   providers: [AppService],

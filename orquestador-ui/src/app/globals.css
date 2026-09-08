@@ -896,7 +896,7 @@ td .empty-state { padding: var(--sp-8) var(--sp-4); }
 /* ── Search grid ── */
 .search-grid {
   display: grid;
-  grid-template-columns: 1.3fr 0.7fr 1fr 0.6fr auto;
+  grid-template-columns: 1.15fr 0.65fr 0.65fr 1fr 0.55fr auto;
   gap: var(--sp-4);
   align-items: end;
 }
@@ -966,6 +966,7 @@ td .empty-state { padding: var(--sp-8) var(--sp-4); }
   display: flex;
   align-items: center;
   gap: var(--sp-2);
+  flex-wrap: wrap;
 }
 .filter-group-label {
   display: inline-flex;
@@ -1698,5 +1699,167 @@ td .empty-state { padding: var(--sp-8) var(--sp-4); }
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+/* ── Badges de Auditoría de Formas ── */
+.badge-audit-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 3.5px;
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.badge-audit-warn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3.5px;
+  background: #fffbeb;
+  color: #92400e;
+  border: 1px solid #fde68a;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.audit-warning-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-left: 4px solid #f59e0b;
+  border-radius: 6px;
+  color: #92400e;
+  font-size: 12.5px;
+  margin-bottom: 12px;
+  animation: fadeIn 0.25s ease;
+}
+
+.audit-warning-banner strong {
+  font-weight: 700;
+  color: #78350f;
+}
+
+.btn-audit-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.btn-audit-toggle-ok {
+  background: #ecfdf5;
+  color: #047857;
+  border-color: #a7f3d0;
+}
+.btn-audit-toggle-ok:hover {
+  background: #d1fae5;
+  border-color: #6ee7b7;
+}
+
+.btn-audit-toggle-warn {
+  background: #f8fafc;
+  color: #475569;
+  border-color: #cbd5e1;
+}
+.btn-audit-toggle-warn:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+  border-color: #94a3b8;
+}
+
+/* Quick Audit Buttons in Motor de Conciliación */
+.btn-quick-audit-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 3.5px;
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-quick-audit-row:hover:not(:disabled) {
+  background: #16a34a;
+  color: #ffffff;
+  border-color: #15803d;
+  box-shadow: 0 1px 3px rgba(22, 163, 74, 0.25);
+}
+
+.btn-quick-audit-row:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-audit-banner-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #059669;
+  color: #ffffff;
+  border: 1px solid #047857;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 3px rgba(5, 150, 105, 0.25);
+  white-space: nowrap;
+}
+
+.btn-audit-banner-action:hover:not(:disabled) {
+  background: #047857;
+  border-color: #065f46;
+  transform: translateY(-1px);
+}
+
+.btn-audit-banner-action:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.audit-feedback-toast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 16px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-left: 4px solid #10b981;
+  border-radius: 6px;
+  color: #065f46;
+  font-size: 12.5px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  animation: fadeIn 0.25s ease;
+}
+
+
 
 

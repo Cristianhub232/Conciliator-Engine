@@ -9,6 +9,7 @@ import {
   Calculator, 
   CheckCircle2, 
   AlertCircle, 
+  AlertTriangle,
   Loader2, 
   RefreshCw, 
   ArrowRight, 
@@ -114,6 +115,36 @@ export const CatalogoFormasView: React.FC = () => {
   const [selectedTipo, setSelectedTipo] = useState<string>('TODAS');
   const [searchPartida, setSearchPartida] = useState('');
 
+  // Auditoría de Formas (PostgreSQL motor_app.formas_auditoria)
+  const [formasAuditoria, setFormasAuditoria] = useState<Record<string, any>>({});
+  const [auditFilter, setAuditFilter] = useState<'TODAS' | 'AUDITADAS' | 'PENDIENTES'>('TODAS');
+  const [auditLoading, setAuditLoading] = useState<string | null>(null);
+
+  const handleToggleAuditoria = async (codForma: string, nuevoEstado: boolean) => {
+    setAuditLoading(codForma);
+    try {
+      const userNombre = usuario ? `${usuario.nombre || ''} ${usuario.apellido || ''}`.trim() || usuario.email : 'Supervisor ONT';
+      const formaActual = formas.find(f => f.COD_FORMA === codForma);
+      const res = await axios.post(`/api/orquestador/formas-auditoria/${codForma}`, {
+        auditada: nuevoEstado,
+        usuario_auditor: userNombre,
+        observaciones: nuevoEstado ? 'Forma certificada por supervisor en catálogo' : 'Auditoría revocada',
+        version_auditada: formaActual?.VERSION || 1
+      });
+      if (res.data?.success) {
+        setFormasAuditoria(prev => ({
+          ...prev,
+          [codForma]: res.data.data
+        }));
+        showToast(nuevoEstado ? `Forma ${codForma} certificada como auditada` : `Auditoría revocada para forma ${codForma}`, 'success');
+      }
+    } catch (err: any) {
+      showToast('Error actualizando auditoría de forma: ' + (err.response?.data?.message || err.message), 'danger');
+    } finally {
+      setAuditLoading(null);
+    }
+  };
+
   // Estado del Simulador
   const [simForma, setSimForma] = useState('99086');
   const [simMonto, setSimMonto] = useState<number>(1000.0);
@@ -172,15 +203,19 @@ export const CatalogoFormasView: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const [formasRes, partidasRes] = await Promise.all([
+      const [formasRes, partidasRes, auditRes] = await Promise.all([
         axios.get('/api/catalogo/formas'),
-        axios.get('/api/catalogo/partidas')
+        axios.get('/api/catalogo/partidas'),
+        axios.get('/api/orquestador/formas-auditoria').catch(() => ({ data: { formas: {} } }))
       ]);
 
       const formasList = formasRes.data.formas || [];
       const partidasList = partidasRes.data.partidas || [];
       setFormas(formasList);
       setPartidas(partidasList);
+      if (auditRes.data?.formas) {
+        setFormasAuditoria(auditRes.data.formas);
+      }
 
       if (partidasList.length > 0 && !editCodPartida) {
         setEditCodPartida(partidasList[0].COD_PARTIDA);
@@ -406,7 +441,13 @@ export const CatalogoFormasView: React.FC = () => {
 
     const matchesTipo = selectedTipo === 'TODAS' || f.TIPO_RESOLUCION === selectedTipo;
 
-    return matchesSearch && matchesTipo;
+    const matchesAuditoria = auditFilter === 'TODAS'
+      ? true
+      : auditFilter === 'AUDITADAS'
+        ? Boolean(formasAuditoria[f.COD_FORMA]?.auditada)
+        : !formasAuditoria[f.COD_FORMA]?.auditada;
+
+    return matchesSearch && matchesTipo && matchesAuditoria;
   });
 
   // Filtrado de Partidas
@@ -715,6 +756,45 @@ export const CatalogoFormasView: React.FC = () => {
                   </button>
                 ))}
               </div>
+
+              {/* Filtro por Auditoría */}
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', borderLeft: '1px solid var(--border-default)', paddingLeft: '8px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)' }}>Auditoría:</span>
+                <button
+                  type="button"
+                  onClick={() => setAuditFilter(auditFilter === 'AUDITADAS' ? 'TODAS' : 'AUDITADAS')}
+                  className="btn btn-ghost"
+                  style={{
+                    padding: '5px 10px',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    background: auditFilter === 'AUDITADAS' ? '#ecfdf5' : 'transparent',
+                    color: auditFilter === 'AUDITADAS' ? '#047857' : 'var(--text-secondary)',
+                    borderColor: auditFilter === 'AUDITADAS' ? '#10b981' : 'var(--border-default)'
+                  }}
+                  title="Mostrar solo formas certificadas/auditadas"
+                >
+                  <CheckCircle2 size={12} style={{ color: '#10b981', marginRight: 4 }} />
+                  Auditadas ({formas.filter(f => formasAuditoria[f.COD_FORMA]?.auditada).length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAuditFilter(auditFilter === 'PENDIENTES' ? 'TODAS' : 'PENDIENTES')}
+                  className="btn btn-ghost"
+                  style={{
+                    padding: '5px 10px',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    background: auditFilter === 'PENDIENTES' ? '#fffbeb' : 'transparent',
+                    color: auditFilter === 'PENDIENTES' ? '#b45309' : 'var(--text-secondary)',
+                    borderColor: auditFilter === 'PENDIENTES' ? '#f59e0b' : 'var(--border-default)'
+                  }}
+                  title="Mostrar solo formas con contrato pendiente de auditar"
+                >
+                  <AlertTriangle size={12} style={{ color: '#f59e0b', marginRight: 4 }} />
+                  Por Auditar ({formas.filter(f => !formasAuditoria[f.COD_FORMA]?.auditada).length})
+                </button>
+              </div>
             </div>
           </div>
 
@@ -730,13 +810,14 @@ export const CatalogoFormasView: React.FC = () => {
                     <th style={{ width: '120px' }}>Partida Asignada</th>
                     <th>Designación de la Partida</th>
                     <th style={{ width: '70px', textAlign: 'center' }}>Versión</th>
+                    <th style={{ width: '135px', textAlign: 'center' }}>Estado Auditoría</th>
                     <th style={{ width: '180px', textAlign: 'right' }}>Acciones y Reglas</th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={7} style={{ textAlign: 'center', padding: '40px' }}>
+                      <td colSpan={8} style={{ textAlign: 'center', padding: '40px' }}>
                         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10 }}>
                           <Loader2 className="spinner" size={20} />
                           <span>Cargando catálogo maestro desde 10.46.0.189:3000...</span>
@@ -745,7 +826,7 @@ export const CatalogoFormasView: React.FC = () => {
                     </tr>
                   ) : formasFiltradas.length === 0 ? (
                     <tr>
-                      <td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                      <td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                         No se encontraron formas con los filtros seleccionados.
                       </td>
                     </tr>
@@ -790,6 +871,44 @@ export const CatalogoFormasView: React.FC = () => {
                           <span className="badge badge-neutral" style={{ fontWeight: 700 }}>
                             v{f.VERSION || 1}
                           </span>
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          {formasAuditoria[f.COD_FORMA]?.auditada ? (
+                            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleAuditoria(f.COD_FORMA, false)}
+                                disabled={auditLoading === f.COD_FORMA}
+                                className="btn-audit-toggle btn-audit-toggle-ok"
+                                title={`Auditada por ${formasAuditoria[f.COD_FORMA]?.usuario_auditor || 'Especialista'} (${new Date(formasAuditoria[f.COD_FORMA]?.fecha_auditoria || '').toLocaleDateString('es-VE')}). Clic para revocar.`}
+                              >
+                                {auditLoading === f.COD_FORMA ? (
+                                  <Loader2 size={12} className="spinner" />
+                                ) : (
+                                  <CheckCircle2 size={12} />
+                                )}
+                                Certificada
+                              </button>
+                              <span style={{ fontSize: '10px', color: '#059669', fontWeight: 600 }}>
+                                v{formasAuditoria[f.COD_FORMA]?.version_auditada ?? f.VERSION ?? 1}
+                              </span>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleAuditoria(f.COD_FORMA, true)}
+                              disabled={auditLoading === f.COD_FORMA}
+                              className="btn-audit-toggle btn-audit-toggle-warn"
+                              title="Contrato forma-presupuesto no auditado. Clic para certificar."
+                            >
+                              {auditLoading === f.COD_FORMA ? (
+                                <Loader2 size={12} className="spinner" />
+                              ) : (
+                                <AlertTriangle size={12} style={{ color: '#d97706' }} />
+                              )}
+                              Por Auditar
+                            </button>
+                          )}
                         </td>
                         <td style={{ textAlign: 'right' }}>
                           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '4px' }}>

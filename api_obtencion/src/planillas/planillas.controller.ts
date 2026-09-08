@@ -12,6 +12,7 @@ export class PlanillasController {
     @Query('banco') banco: string,
     @Query('estado_asignacion') estado_asignacion?: 'ASIGNADAS' | 'HUERFANAS',
     @Query('expediente') expediente?: string,
+    @Query('lote_id') lote_id?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
@@ -32,6 +33,7 @@ export class PlanillasController {
         banco,
         estado_asignacion,
         expediente,
+        lote_id: lote_id ? Number(lote_id) : undefined,
         limit: limit ? parseInt(limit, 10) : 1000,
         offset: offset ? parseInt(offset, 10) : 0,
       };

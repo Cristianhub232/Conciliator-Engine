@@ -9,6 +9,7 @@ export interface PlanillasFilter {
   banco: string;
   estado_asignacion?: 'ASIGNADAS' | 'HUERFANAS' | 'TODAS';
   expediente?: string;
+  lote_id?: string | number;
   limit?: number;
   offset?: number;
 }
@@ -85,7 +86,7 @@ export class PlanillasService {
   }
 
   async getPendientes(filters: PlanillasFilter) {
-    const { fecha, banco, estado_asignacion, expediente, limit = 1000, offset = 0 } = filters;
+    const { fecha, banco, estado_asignacion, expediente, lote_id, limit = 1000, offset = 0 } = filters;
     
     let baseQuery = '';
     const binds: any = {};
@@ -98,6 +99,11 @@ export class PlanillasService {
     if (expediente) {
       filtersSql += ` AND L.EXPEDIENTE = :expediente`;
       binds.expediente = expediente;
+    }
+
+    if (lote_id) {
+      filtersSql += ` AND L.LOTE_ID = :lote_id`;
+      binds.lote_id = Number(lote_id);
     }
 
     if (estado_asignacion === 'ASIGNADAS' || estado_asignacion === 'TODAS') {
