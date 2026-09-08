@@ -17,6 +17,7 @@ import {
   Bot
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { AppVersionBadge } from './AppVersionBadge';
 
 export type NavTab = 'conciliacion' | 'transcriptores' | 'expedientes' | 'auditoria' | 'catalogo_formas' | 'depuracion' | 'bot-config' | 'usuarios' | 'configuracion';
 
@@ -277,6 +278,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', paddingTop: '4px', borderTop: '1px solid #F1F5F9' }}>
               <span style={{ fontSize: '11px', fontWeight: 700, color: '#5C6C80' }}>PostgreSQL</span>
               <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '10.5px', color: '#8797A8' }}>motor_app</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', paddingTop: '4px', borderTop: '1px solid #F1F5F9' }}>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: '#5C6C80' }}>Versión</span>
+              <AppVersionBadge compact style={{ padding: '1px 6px', fontSize: '10px' }} />
             </div>
           </div>
         ) : (

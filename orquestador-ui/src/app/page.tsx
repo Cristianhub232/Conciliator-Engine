@@ -16,6 +16,7 @@ import { UsuariosView } from '../components/UsuariosView';
 import { ConfiguracionView } from '../components/ConfiguracionView';
 import { BotConfigView } from '../components/BotConfigView';
 import { ResumenOperacionModal, ResumenOperacionData } from '../components/ResumenOperacionModal';
+import { AppVersionBadge } from '../components/AppVersionBadge';
 
 function OrquestadorPageInner() {
   const { isAuthenticated, loading: authLoading, usuario } = useAuth();
@@ -494,7 +495,10 @@ function OrquestadorPageInner() {
                   <p className="app-subtitle">Motor Financiero · ONT</p>
                 </div>
               </div>
-              <img src="/Logo_basado_en_banner.png" alt="Datax" className="app-partner-logo" />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <AppVersionBadge />
+                <img src="/Logo_basado_en_banner.png" alt="Datax" className="app-partner-logo" />
+              </div>
             </header>
 
             {/* ── Search ── */}

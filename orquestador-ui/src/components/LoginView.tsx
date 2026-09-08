@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { AppVersionBadge } from './AppVersionBadge';
 
 export const LoginView: React.FC = () => {
   const { login } = useAuth();
@@ -232,12 +233,15 @@ export const LoginView: React.FC = () => {
       <div className="login-form-pane">
         <div style={{ width: '100%', maxWidth: '404px' }}>
           
-          {/* Logo Principal Banner */}
-          <img 
-            src="/Logo_basado_en_banner.png" 
-            alt="Datax" 
-            style={{ height: '44px', width: 'auto', display: 'block', marginBottom: '40px', objectFit: 'contain' }} 
-          />
+          {/* Logo Principal Banner y Versión */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '36px' }}>
+            <img 
+              src="/Logo_basado_en_banner.png" 
+              alt="Datax" 
+              style={{ height: '42px', width: 'auto', display: 'block', objectFit: 'contain' }} 
+            />
+            <AppVersionBadge compact />
+          </div>
 
           <div style={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.18em', color: '#1E5C99', marginBottom: '10px' }}>
             MOTOR FINANCIERO Y CONTROL DE ACCESO
