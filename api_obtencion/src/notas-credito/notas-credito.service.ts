@@ -31,6 +31,15 @@ export interface FormaSeniatSummary {
   monto_pendiente: number;
 }
 
+export interface DuplicadoTxtItem {
+  planilla: string;
+  forma_codigo: string;
+  monto: number;
+  agencia: string;
+  repeticiones: number;
+  monto_excedente: number;
+}
+
 export interface NotasCreditoResponse {
   fecha: string;
   banco: string | null;
@@ -49,6 +58,11 @@ export interface NotasCreditoResponse {
     monto_pendiente: number;
     planillas_conciliadas: number;
     planillas_pendientes: number;
+    planillas_pendientes_unicas: number;
+    monto_pendiente_unico: number;
+    planillas_duplicadas_count: number;
+    monto_duplicadas: number;
+    duplicados: DuplicadoTxtItem[];
   };
   brecha: {
     diferencia_nc_vs_txt_pendiente: number;
@@ -184,13 +198,61 @@ export class NotasCreditoService {
       const rawSeniat = await this.db.executeQuery<any>(seniatSql, seniatBinds);
       const seniatRow = rawSeniat[0] || {};
 
+      // 2.1. Detección de registros duplicados idénticos en TXT_SENIAT
+      let dupsSql = `
+        SELECT 
+          T.PLANILLA,
+          T.FORMA_CODIGO,
+          T.MONTO_EFECTIVO,
+          T.AGENCIA_CODIGO,
+          COUNT(*) AS REPETICIONES
+        FROM ORG_LIQ.TXT_SENIAT T
+        WHERE T.FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD')
+          AND (T.ESTADO IS NULL OR T.ESTADO = 0)
+      `;
+      const dupsBinds: any = { fecha };
+      if (banco && banco !== 'TODOS' && banco.trim() !== '') {
+        dupsSql += ` AND T.INFN_CODIGO = :banco`;
+        dupsBinds.banco = banco.trim();
+      }
+      dupsSql += ` GROUP BY T.PLANILLA, T.FORMA_CODIGO, T.MONTO_EFECTIVO, T.AGENCIA_CODIGO HAVING COUNT(*) > 1 ORDER BY T.MONTO_EFECTIVO DESC`;
+
+      const rawDups = await this.db.executeQuery<any>(dupsSql, dupsBinds);
+      let planillasDuplicadasCount = 0;
+      let montoDuplicadas = 0;
+      const duplicadosDetalle: DuplicadoTxtItem[] = (rawDups || []).map((d: any) => {
+        const rep = Number(d.REPETICIONES || 1);
+        const monto = Number(d.MONTO_EFECTIVO || 0);
+        const sobrantes = rep - 1;
+        planillasDuplicadasCount += sobrantes;
+        montoDuplicadas += monto * sobrantes;
+        return {
+          planilla: String(d.PLANILLA),
+          forma_codigo: String(d.FORMA_CODIGO),
+          monto,
+          agencia: String(d.AGENCIA_CODIGO || ''),
+          repeticiones: rep,
+          monto_excedente: Number((monto * sobrantes).toFixed(2)),
+        };
+      });
+
+      const totalPendientesBrutas = Number(seniatRow.PLANILLAS_PENDIENTES || 0);
+      const montoPendienteBruto = Number(seniatRow.MONTO_PENDIENTE || 0);
+      const planillasPendientesUnicas = Math.max(0, totalPendientesBrutas - planillasDuplicadasCount);
+      const montoPendienteUnico = Math.max(0, Number((montoPendienteBruto - montoDuplicadas).toFixed(2)));
+
       const totalesSeniat = {
         total_planillas: Number(seniatRow.TOTAL_PLANILLAS || 0),
         total_monto: Number(seniatRow.TOTAL_MONTO || 0),
         monto_conciliado: Number(seniatRow.MONTO_CONCILIADO || 0),
-        monto_pendiente: Number(seniatRow.MONTO_PENDIENTE || 0),
+        monto_pendiente: montoPendienteBruto,
         planillas_conciliadas: Number(seniatRow.PLANILLAS_CONCILIADAS || 0),
-        planillas_pendientes: Number(seniatRow.PLANILLAS_PENDIENTES || 0),
+        planillas_pendientes: totalPendientesBrutas,
+        planillas_pendientes_unicas: planillasPendientesUnicas,
+        monto_pendiente_unico: montoPendienteUnico,
+        planillas_duplicadas_count: planillasDuplicadasCount,
+        monto_duplicadas: Number(montoDuplicadas.toFixed(2)),
+        duplicados: duplicadosDetalle,
       };
 
       // 3. Desglose de formas en TXT_SENIAT
@@ -222,13 +284,15 @@ export class NotasCreditoService {
         monto_pendiente: Number(f.MONTO_PENDIENTE || 0),
       }));
 
-      // 4. Diagnóstico y Análisis de Brecha
-      const difPendiente = totalesNc.monto_total - totalesSeniat.monto_pendiente;
+      // 4. Diagnóstico y Análisis de Brecha (frente al monto pendiente único)
+      const difPendiente = totalesNc.monto_total - totalesSeniat.monto_pendiente_unico;
       const difTotal = totalesNc.monto_total - totalesSeniat.total_monto;
       const tieneBrecha = Math.abs(difPendiente) > 0.01;
 
       let observacion = '';
-      if (!tieneBrecha && totalesNc.cantidad > 0) {
+      if (planillasDuplicadasCount > 0) {
+        observacion = `Aviso de Duplicados en TXT: Se detectaron ${planillasDuplicadasCount} registros duplicados idénticos en el archivo transmitido (Bs. ${montoDuplicadas.toLocaleString('es-VE', { minimumFractionDigits: 2 })}). El total bruto de ${totalPendientesBrutas.toLocaleString('es-VE')} registros consolida ${planillasPendientesUnicas.toLocaleString('es-VE')} planillas únicas listas para conciliar por Bs. ${montoPendienteUnico.toLocaleString('es-VE', { minimumFractionDigits: 2 })}.`;
+      } else if (!tieneBrecha && totalesNc.cantidad > 0) {
         observacion = 'Conciliación perfecta: El monto en Notas de Crédito coincide exactamente con el monto pendiente en TXT SENIAT.';
       } else if (totalesNc.cantidad === 0 && totalesSeniat.total_planillas > 0) {
         observacion = 'No se registran Notas de Crédito bancarias para los criterios seleccionados en esta fecha.';
@@ -260,6 +324,11 @@ export class NotasCreditoService {
           monto_pendiente: Number(totalesSeniat.monto_pendiente.toFixed(2)),
           planillas_conciliadas: totalesSeniat.planillas_conciliadas,
           planillas_pendientes: totalesSeniat.planillas_pendientes,
+          planillas_pendientes_unicas: totalesSeniat.planillas_pendientes_unicas,
+          monto_pendiente_unico: totalesSeniat.monto_pendiente_unico,
+          planillas_duplicadas_count: totalesSeniat.planillas_duplicadas_count,
+          monto_duplicadas: totalesSeniat.monto_duplicadas,
+          duplicados: totalesSeniat.duplicados,
         },
         brecha: {
           diferencia_nc_vs_txt_pendiente: Number(difPendiente.toFixed(2)),

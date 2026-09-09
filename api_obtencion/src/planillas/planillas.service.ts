@@ -65,6 +65,22 @@ export interface DeteccionAtributosNullResponse {
   planillas: PlanillaAtributoNullItem[];
 }
 
+export interface DuplicadoTxtItem {
+  planilla: string;
+  forma_codigo: string;
+  monto: number;
+  agencia: string;
+  repeticiones: number;
+  monto_excedente: number;
+}
+
+export interface DuplicadosTxtResponse {
+  total_duplicadas: number;
+  monto_total_duplicadas: number;
+  planillas_unicas_afectadas: number;
+  duplicados: DuplicadoTxtItem[];
+}
+
 export interface ConciliarEspecialesDto {
   usuario_email: string;
   password_autorizacion: string;
@@ -1222,15 +1238,69 @@ export class PlanillasService {
       detalles: detallesResultados,
     });
 
-    return {
-      success: true,
-      mensaje: `Conciliación especial completada: ${exitosas} de ${planillas.length} planillas procesadas exitosamente.`,
-      total_procesadas: planillas.length,
-      exitosas,
-      fallidas,
-      monto_total_conciliado: Number(montoConciliado.toFixed(2)),
-      lotes_cerrados: Array.from(lotesCerradosSet),
-      detalles: detallesResultados,
-    };
+      return {
+        success: true,
+        mensaje: `Conciliación especial completada: ${exitosas} de ${planillas.length} planillas procesadas exitosamente.`,
+        total_procesadas: planillas.length,
+        exitosas,
+        fallidas,
+        monto_total_conciliado: Number(montoConciliado.toFixed(2)),
+        lotes_cerrados: Array.from(lotesCerradosSet),
+        detalles: detallesResultados,
+      };
+    }
+
+    async detectarDuplicadosTxt(fecha: string, banco?: string): Promise<DuplicadosTxtResponse> {
+      if (!fecha) {
+        throw new BadRequestException('El parámetro fecha (YYYY-MM-DD) es requerido');
+      }
+
+      let dupsSql = `
+        SELECT 
+          T.PLANILLA,
+          T.FORMA_CODIGO,
+          T.MONTO_EFECTIVO,
+          T.AGENCIA_CODIGO,
+          COUNT(*) AS REPETICIONES
+        FROM ORG_LIQ.TXT_SENIAT T
+        WHERE T.FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD')
+          AND (T.ESTADO IS NULL OR T.ESTADO = 0)
+      `;
+      const binds: any = { fecha };
+
+      if (banco && banco !== 'TODOS' && String(banco).trim() !== '') {
+        dupsSql += ` AND T.INFN_CODIGO = :banco`;
+        binds.banco = String(banco).trim();
+      }
+
+      dupsSql += ` GROUP BY T.PLANILLA, T.FORMA_CODIGO, T.MONTO_EFECTIVO, T.AGENCIA_CODIGO HAVING COUNT(*) > 1 ORDER BY T.MONTO_EFECTIVO DESC`;
+
+      const rawDups = await this.db.executeQuery<any>(dupsSql, binds);
+
+      let totalDuplicadas = 0;
+      let montoTotalDuplicadas = 0;
+
+      const duplicados: DuplicadoTxtItem[] = (rawDups || []).map((d: any) => {
+        const rep = Number(d.REPETICIONES || 1);
+        const monto = Number(d.MONTO_EFECTIVO || 0);
+        const sobrantes = rep - 1;
+        totalDuplicadas += sobrantes;
+        montoTotalDuplicadas += monto * sobrantes;
+        return {
+          planilla: String(d.PLANILLA),
+          forma_codigo: String(d.FORMA_CODIGO),
+          monto,
+          agencia: String(d.AGENCIA_CODIGO || ''),
+          repeticiones: rep,
+          monto_excedente: Number((monto * sobrantes).toFixed(2)),
+        };
+      });
+
+      return {
+        total_duplicadas: totalDuplicadas,
+        monto_total_duplicadas: Number(montoTotalDuplicadas.toFixed(2)),
+        planillas_unicas_afectadas: duplicados.length,
+        duplicados,
+      };
+    }
   }
-}

@@ -19,6 +19,7 @@ import { BotConfigView } from '../components/BotConfigView';
 import { ResumenOperacionModal, ResumenOperacionData } from '../components/ResumenOperacionModal';
 import { AppVersionBadge } from '../components/AppVersionBadge';
 import { PlanillasAtributosNullModal } from '../components/PlanillasAtributosNullModal';
+import { DuplicadosTxtModal } from '../components/DuplicadosTxtModal';
 
 function OrquestadorPageInner() {
   const { isAuthenticated, loading: authLoading, usuario } = useAuth();
@@ -40,6 +41,8 @@ function OrquestadorPageInner() {
   const [depuracionError, setDepuracionError] = useState<string | null>(null);
   const [atributosNullData, setAtributosNullData] = useState<any>(null);
   const [isAtributosNullModalOpen, setIsAtributosNullModalOpen] = useState(false);
+  const [duplicadosTxtData, setDuplicadosTxtData] = useState<any>(null);
+  const [isDuplicadosModalOpen, setIsDuplicadosModalOpen] = useState(false);
 
   // States
   const [mappingStates, setMappingStates] = useState<Record<number, any>>({});
@@ -181,9 +184,10 @@ function OrquestadorPageInner() {
     setDepuracionAlert(null);
     setDepuracionError(null);
     setAtributosNullData(null);
+    setDuplicadosTxtData(null);
     setStoppedByUser(false);
     try {
-      const [res, depScanRes, auditRes, nullScanRes] = await Promise.all([
+      const [res, depScanRes, auditRes, nullScanRes, dupsRes] = await Promise.all([
         axios.get(`/api/orquestador/planillas/pendientes`, {
           params: { 
             fecha, 
@@ -210,6 +214,12 @@ function OrquestadorPageInner() {
         }).catch((err: any) => {
           console.warn('Error detectando planillas con atributos null:', err);
           return { data: { total: 0, monto_total: 0, formas_detectadas: [], planillas: [] } };
+        }),
+        axios.get(`/api/orquestador/planillas/duplicados-txt`, {
+          params: { fecha, banco }
+        }).catch((err: any) => {
+          console.warn('Error detectando duplicados en TXT:', err);
+          return { data: { total_duplicadas: 0, monto_total_duplicadas: 0, duplicados: [] } };
         })
       ]);
 
@@ -221,6 +231,10 @@ function OrquestadorPageInner() {
         setDepuracionError((depScanRes as any).error);
       } else if (depScanRes.data && depScanRes.data.total_detectadas > 0) {
         setDepuracionAlert(depScanRes.data);
+      }
+
+      if (dupsRes?.data?.total_duplicadas > 0) {
+        setDuplicadosTxtData(dupsRes.data);
       }
 
       if (nullScanRes.data && nullScanRes.data.total > 0) {
@@ -677,6 +691,88 @@ function OrquestadorPageInner() {
             onMouseOut={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
           >
             Abrir Advertisement ({atributosNullData.total}) →
+          </button>
+        </div>
+      )}
+
+      {/* ── Banner Informativo: Planillas Duplicadas en TXT_SENIAT ── */}
+      {duplicadosTxtData && duplicadosTxtData.total_duplicadas > 0 && (
+        <div style={{
+          margin: '0 0 20px',
+          padding: '14px 18px',
+          background: 'linear-gradient(135deg, #F0F9FF 0%, #E0F2FE 100%)',
+          border: '1.5px solid #38BDF8',
+          borderRadius: '12px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '16px',
+          boxShadow: '0 4px 15px rgba(56, 189, 248, 0.12)',
+          animation: 'fadeIn 0.25s ease'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div style={{
+              width: '42px',
+              height: '42px',
+              borderRadius: '10px',
+              background: '#0284C7',
+              color: '#ffffff',
+              display: 'grid',
+              placeItems: 'center',
+              flexShrink: 0,
+              boxShadow: '0 2px 8px rgba(2, 132, 199, 0.3)'
+            }}>
+              <Layers size={22} />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                <span style={{
+                  fontSize: '10.5px',
+                  fontWeight: 900,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  background: '#0369A1',
+                  color: '#ffffff',
+                  padding: '2px 8px',
+                  borderRadius: '4px'
+                }}>
+                  Auditoría de Duplicados en TXT
+                </span>
+                <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 800, color: '#0369A1' }}>
+                  Se detectaron {duplicadosTxtData.total_duplicadas} registros repetidos en el archivo TXT bancario (Monto: Bs. {duplicadosTxtData.monto_total_duplicadas?.toLocaleString('es-VE', { minimumFractionDigits: 2 })})
+                </h4>
+              </div>
+              <p style={{ margin: 0, fontSize: '12.5px', color: '#0284C7', lineHeight: 1.4 }}>
+                El archivo transmitido por el banco contiene {planillas.length + duplicadosTxtData.total_duplicadas} registros brutos. Conciliación Masiva procesa automáticamente las <strong>{planillas.length} planillas únicas</strong> para evitar cobros dobles en SIGECOF.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsDuplicadosModalOpen(true)}
+            className="btn"
+            style={{
+              background: 'linear-gradient(135deg, #0284C7 0%, #0369A1 100%)',
+              color: '#ffffff',
+              height: '38px',
+              padding: '0 16px',
+              fontSize: '12.5px',
+              fontWeight: 800,
+              borderRadius: '8px',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 2px 8px rgba(2, 132, 199, 0.3)',
+              whiteSpace: 'nowrap',
+              transition: 'transform 0.15s ease'
+            }}
+            onMouseOver={(e) => (e.currentTarget.style.transform = 'translateY(-1px)')}
+            onMouseOut={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
+          >
+            Ver {duplicadosTxtData.total_duplicadas} Duplicadas en TXT →
           </button>
         </div>
       )}
@@ -1491,6 +1587,19 @@ function OrquestadorPageInner() {
         onSuccessConciliacion={() => {
           handleSearch({ preventDefault: () => {} });
         }}
+      />
+
+      {/* Modal de Detalle de Planillas Duplicadas en TXT */}
+      <DuplicadosTxtModal
+        isOpen={isDuplicadosModalOpen}
+        onClose={() => setIsDuplicadosModalOpen(false)}
+        duplicados={duplicadosTxtData?.duplicados || []}
+        totalDuplicadas={duplicadosTxtData?.total_duplicadas || 0}
+        montoTotalDuplicadas={duplicadosTxtData?.monto_total_duplicadas || 0}
+        fecha={fecha}
+        banco={banco}
+        totalBrutoTxt={planillas.length + (duplicadosTxtData?.total_duplicadas || 0)}
+        totalUnico={planillas.length}
       />
     </div>
   );

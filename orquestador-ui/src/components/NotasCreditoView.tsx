@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   TrendingDown
 } from 'lucide-react';
+import { DuplicadosTxtModal, DuplicadoTxtItem } from './DuplicadosTxtModal';
 
 export const BANCOS_CATALOGO: Record<string, string> = {
   '102': 'BANCO DE VENEZUELA',
@@ -49,13 +50,14 @@ export const NotasCreditoView: React.FC = () => {
   // Estado de datos
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [formasSeniat, setFormasSeniat] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'ncs' | 'formas'>('ncs');
-
-  // Modal Detalle
-  const [selectedNc, setSelectedNc] = useState<any>(null);
+  const [selectedNc, setSelectedNc] = useState<any | null>(null);
+  const [modalData, setModalData] = useState<any | null>(null);
   const [loadingModal, setLoadingModal] = useState(false);
-  const [modalData, setModalData] = useState<any>(null);
+  const [copiedNc, setCopiedNc] = useState<string | null>(null);
+  const [isDuplicadosModalOpen, setIsDuplicadosModalOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Clipboard feedback
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
@@ -331,15 +333,57 @@ export const NotasCreditoView: React.FC = () => {
               <span style={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.06em', color: '#64748B', textTransform: 'uppercase' }}>
                 SENIAT Pendiente (TXT)
               </span>
-              <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '20px', background: '#FEF3C7', color: '#D97706' }}>
-                {totalesSeniat.planillas_pendientes} Planillas
+              <span style={{ 
+                fontSize: '11px', 
+                fontWeight: 800, 
+                padding: '2px 9px', 
+                borderRadius: '20px', 
+                background: totalesSeniat.planillas_duplicadas_count ? '#DCFCE7' : '#FEF3C7', 
+                color: totalesSeniat.planillas_duplicadas_count ? '#166534' : '#D97706' 
+              }}>
+                {totalesSeniat.planillas_pendientes_unicas || totalesSeniat.planillas_pendientes} Planillas Únicas
               </span>
             </div>
-            <div style={{ fontSize: '22px', fontWeight: 800, color: '#D97706', fontFamily: "'IBM Plex Mono', monospace" }}>
-              Bs. {formatBs(totalesSeniat.monto_pendiente)}
+            <div style={{ fontSize: '22px', fontWeight: 800, color: '#0F172A', fontFamily: "'IBM Plex Mono', monospace" }}>
+              Bs. {formatBs(totalesSeniat.monto_pendiente_unico || totalesSeniat.monto_pendiente)}
             </div>
-            <div style={{ display: 'flex', gap: '8px', fontSize: '11px', color: '#64748B', fontWeight: 600, borderTop: '1px solid #F1F5F9', paddingTop: '8px' }}>
-              <span>Total TXT: <strong>Bs. {formatBs(totalesSeniat.total_monto)}</strong> ({totalesSeniat.total_planillas} plns)</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '11px', color: '#64748B', fontWeight: 600, borderTop: '1px solid #F1F5F9', paddingTop: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>Total TXT Bruto: <strong>{totalesSeniat.planillas_pendientes} plns</strong> (Bs. {formatBs(totalesSeniat.monto_pendiente)})</span>
+              </div>
+              {totalesSeniat.planillas_duplicadas_count > 0 && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '4px 8px',
+                  borderRadius: '6px',
+                  backgroundColor: '#FEF3C7',
+                  color: '#92400E',
+                  marginTop: '2px'
+                }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <AlertTriangle size={12} color="#D97706" />
+                    <strong>{totalesSeniat.planillas_duplicadas_count} duplicadas</strong> (+Bs. {formatBs(totalesSeniat.monto_duplicadas)})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsDuplicadosModalOpen(true)}
+                    style={{
+                      border: 'none',
+                      background: '#D97706',
+                      color: '#ffffff',
+                      borderRadius: '4px',
+                      padding: '2px 7px',
+                      fontSize: '10.5px',
+                      fontWeight: 800,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Ver detalle →
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -939,6 +983,19 @@ export const NotasCreditoView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Modal de Detalle de Planillas Duplicadas en TXT */}
+      <DuplicadosTxtModal
+        isOpen={isDuplicadosModalOpen}
+        onClose={() => setIsDuplicadosModalOpen(false)}
+        duplicados={totalesSeniat.duplicados || []}
+        totalDuplicadas={totalesSeniat.planillas_duplicadas_count || 0}
+        montoTotalDuplicadas={totalesSeniat.monto_duplicadas || 0}
+        fecha={fecha}
+        banco={banco}
+        totalBrutoTxt={totalesSeniat.planillas_pendientes}
+        totalUnico={totalesSeniat.planillas_pendientes_unicas}
+      />
     </div>
   );
 };

@@ -191,6 +191,31 @@ export class PlanillasController {
     }
   }
 
+  @Get('duplicados-txt')
+  async getDuplicadosTxt(
+    @Query('fecha') fecha: string,
+    @Query('banco') banco?: string,
+  ) {
+    if (!fecha) {
+      throw new HttpException(
+        { status: HttpStatus.BAD_REQUEST, error: 'Parámetro requerido', message: 'El parámetro fecha es obligatorio.' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    try {
+      const data = await this.planillasService.detectarDuplicadosTxt(fecha, banco);
+      return {
+        success: true,
+        ...data,
+      };
+    } catch (error: any) {
+      throw new HttpException(
+        { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error al detectar duplicados en TXT', message: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   @Post('conciliar-especiales')
   async conciliarPlanillasEspeciales(@Body() payload: ConciliarEspecialesDto) {
     try {
