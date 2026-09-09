@@ -12,11 +12,13 @@ import { ExpedientesExplorerView } from '../components/ExpedientesExplorerView';
 import { AuditoriaLogsView } from '../components/AuditoriaLogsView';
 import { CatalogoFormasView } from '../components/CatalogoFormasView';
 import { DepuracionView } from '../components/DepuracionView';
+import { NotasCreditoView } from '../components/NotasCreditoView';
 import { UsuariosView } from '../components/UsuariosView';
 import { ConfiguracionView } from '../components/ConfiguracionView';
 import { BotConfigView } from '../components/BotConfigView';
 import { ResumenOperacionModal, ResumenOperacionData } from '../components/ResumenOperacionModal';
 import { AppVersionBadge } from '../components/AppVersionBadge';
+import { PlanillasAtributosNullModal } from '../components/PlanillasAtributosNullModal';
 
 function OrquestadorPageInner() {
   const { isAuthenticated, loading: authLoading, usuario } = useAuth();
@@ -36,6 +38,8 @@ function OrquestadorPageInner() {
   const [error, setError] = useState<string | null>(null);
   const [depuracionAlert, setDepuracionAlert] = useState<any>(null);
   const [depuracionError, setDepuracionError] = useState<string | null>(null);
+  const [atributosNullData, setAtributosNullData] = useState<any>(null);
+  const [isAtributosNullModalOpen, setIsAtributosNullModalOpen] = useState(false);
 
   // States
   const [mappingStates, setMappingStates] = useState<Record<number, any>>({});
@@ -176,9 +180,10 @@ function OrquestadorPageInner() {
     setMappingStates({});
     setDepuracionAlert(null);
     setDepuracionError(null);
+    setAtributosNullData(null);
     setStoppedByUser(false);
     try {
-      const [res, depScanRes, auditRes] = await Promise.all([
+      const [res, depScanRes, auditRes, nullScanRes] = await Promise.all([
         axios.get(`/api/orquestador/planillas/pendientes`, {
           params: { 
             fecha, 
@@ -194,7 +199,18 @@ function OrquestadorPageInner() {
           const msg = err.response?.data?.message || err.message || 'Error al conectar con Oracle';
           return { error: msg, data: { total_detectadas: 0 } };
         }),
-        axios.get(`/api/orquestador/formas-auditoria`).catch(() => ({ data: { formas: {} } }))
+        axios.get(`/api/orquestador/formas-auditoria`).catch(() => ({ data: { formas: {} } })),
+        axios.get(`/api/orquestador/planillas/detectar-atributos-null`, {
+          params: {
+            fecha,
+            banco,
+            expediente: searchLote.trim() || undefined,
+            lote_id: searchLote.trim() || undefined
+          }
+        }).catch((err: any) => {
+          console.warn('Error detectando planillas con atributos null:', err);
+          return { data: { total: 0, monto_total: 0, formas_detectadas: [], planillas: [] } };
+        })
       ]);
 
       setPlanillas(res.data.data || []);
@@ -205,6 +221,36 @@ function OrquestadorPageInner() {
         setDepuracionError((depScanRes as any).error);
       } else if (depScanRes.data && depScanRes.data.total_detectadas > 0) {
         setDepuracionAlert(depScanRes.data);
+      }
+
+      if (nullScanRes.data && nullScanRes.data.total > 0) {
+        setAtributosNullData(nullScanRes.data);
+      } else {
+        // Fallback si la búsqueda directa en pendientes tiene formas 99044 o LOTE_SEQ null
+        const rawList = res.data.data || [];
+        const especiales = rawList.filter((p: any) => p.FORMA === '99044' || p.LOTE_SEQ == null);
+        if (especiales.length > 0) {
+          const montoEsp = especiales.reduce((acc: number, p: any) => acc + (p.MONTO_EFECTIVO || 0), 0);
+          const formasEsp = Array.from(new Set(especiales.map((p: any) => p.FORMA || '99044'))) as string[];
+          setAtributosNullData({
+            total: especiales.length,
+            monto_total: montoEsp,
+            formas_detectadas: formasEsp,
+            planillas: especiales.map((p: any) => ({
+              planilla_id: String(p.NRO_PLANILLA_FALTANTE),
+              forma: p.FORMA || '99044',
+              monto: p.MONTO_EFECTIVO || 0,
+              banco: String(p.BANCO || banco),
+              agencia: String(p.AGENCIA || '0'),
+              fecha_recaudacion: p.FECHA_RECAUDACION || fecha,
+              rif: p.RIF || 'J000000000',
+              expediente: p.EXPEDIENTE || (searchLote.trim() ? Number(searchLote.trim()) : undefined),
+              lote_id: p.LOTE_ID,
+              lote_seq: p.LOTE_SEQ,
+              motivo_alerta: 'Detectado en listado pendiente'
+            }))
+          });
+        }
       }
     } catch (err: any) {
       setError(err.response?.data?.message || err.message);
@@ -478,6 +524,7 @@ function OrquestadorPageInner() {
         {activeTab === 'auditoria' && <AuditoriaLogsView />}
         {activeTab === 'catalogo_formas' && <CatalogoFormasView />}
         {activeTab === 'depuracion' && <DepuracionView />}
+        {activeTab === 'notas_credito' && <NotasCreditoView />}
         {activeTab === 'bot-config' && <BotConfigView />}
         {activeTab === 'usuarios' && <UsuariosView />}
         {activeTab === 'configuracion' && <ConfiguracionView />}
@@ -550,6 +597,89 @@ function OrquestadorPageInner() {
           </button>
         </form>
       </section>
+
+      {/* ── Banner Advertisement: Planillas con Atributos NULL / Forma 99044 ── */}
+      {atributosNullData && atributosNullData.total > 0 && (
+        <div style={{
+          margin: '0 0 20px',
+          padding: '16px 20px',
+          background: 'linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%)',
+          border: '1.5px solid #F59E0B',
+          borderRadius: '12px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '16px',
+          boxShadow: '0 4px 15px rgba(245, 158, 11, 0.12)',
+          animation: 'fadeIn 0.25s ease'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div style={{
+              width: '44px',
+              height: '44px',
+              borderRadius: '10px',
+              background: '#D97706',
+              color: '#ffffff',
+              display: 'grid',
+              placeItems: 'center',
+              flexShrink: 0,
+              boxShadow: '0 2px 8px rgba(217, 119, 6, 0.3)'
+            }}>
+              <AlertTriangle size={24} />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                <span style={{
+                  fontSize: '10.5px',
+                  fontWeight: 900,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  background: '#B45309',
+                  color: '#ffffff',
+                  padding: '2px 8px',
+                  borderRadius: '4px'
+                }}>
+                  Advertisement Especial
+                </span>
+                <h4 style={{ margin: 0, fontSize: '14.5px', fontWeight: 800, color: '#92400E' }}>
+                  ¡Atención: Se han detectado {atributosNullData.total} planillas con atributos NULL (Forma {atributosNullData.formas_detectadas?.join(', ') || '99044'})!
+                </h4>
+              </div>
+              <p style={{ margin: 0, fontSize: '12.5px', color: '#B45309', lineHeight: 1.4 }}>
+                Monto acumulado: <strong style={{ color: '#78350F' }}>Bs. {atributosNullData.monto_total?.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>.
+                &nbsp;Estas planillas no tienen atributos de lote/año completos o corresponden a Aduanas/ISLR. Puede abrirlas para mapear y conciliar bajo autorización con clave.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsAtributosNullModalOpen(true)}
+            className="btn"
+            style={{
+              background: 'linear-gradient(135deg, #D97706 0%, #B45309 100%)',
+              color: '#ffffff',
+              height: '40px',
+              padding: '0 18px',
+              fontSize: '13px',
+              fontWeight: 800,
+              borderRadius: '8px',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              boxShadow: '0 3px 10px rgba(180, 83, 9, 0.35)',
+              whiteSpace: 'nowrap',
+              transition: 'transform 0.15s ease'
+            }}
+            onMouseOver={(e) => (e.currentTarget.style.transform = 'translateY(-1px)')}
+            onMouseOut={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
+          >
+            Abrir Advertisement ({atributosNullData.total}) →
+          </button>
+        </div>
+      )}
 
       {/* ── Banner de Alerta de Depuración Detectada ── */}
       {depuracionAlert && depuracionAlert.total_detectadas > 0 && (
@@ -1348,6 +1478,19 @@ function OrquestadorPageInner() {
         data={resumenModal} 
         onClose={() => setResumenModal(null)} 
         onProcederConciliar={autorizarMasivo}
+      />
+
+      {/* Modal de Planillas con Atributos Null / Forma 99044 */}
+      <PlanillasAtributosNullModal
+        isOpen={isAtributosNullModalOpen}
+        onClose={() => setIsAtributosNullModalOpen(false)}
+        data={atributosNullData}
+        fecha={fecha}
+        banco={banco}
+        expediente={searchLote}
+        onSuccessConciliacion={() => {
+          handleSearch({ preventDefault: () => {} });
+        }}
       />
     </div>
   );

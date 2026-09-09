@@ -14,12 +14,13 @@ import {
   User,
   BookOpen,
   ShieldAlert,
-  Bot
+  Bot,
+  Landmark
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { AppVersionBadge } from './AppVersionBadge';
 
-export type NavTab = 'conciliacion' | 'transcriptores' | 'expedientes' | 'auditoria' | 'catalogo_formas' | 'depuracion' | 'bot-config' | 'usuarios' | 'configuracion';
+export type NavTab = 'conciliacion' | 'transcriptores' | 'expedientes' | 'auditoria' | 'catalogo_formas' | 'depuracion' | 'notas_credito' | 'bot-config' | 'usuarios' | 'configuracion';
 
 interface SidebarProps {
   activeTab: NavTab;
@@ -96,6 +97,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Depuración de Formas',
       icon: ShieldAlert,
       badge: 'Control'
+    },
+    {
+      id: 'notas_credito' as NavTab,
+      label: 'Notas de Crédito',
+      icon: Landmark,
+      badge: 'SIGECOF'
     },
     {
       id: 'bot-config' as NavTab,

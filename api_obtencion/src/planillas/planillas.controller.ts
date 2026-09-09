@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Body, Query, Param, HttpException, HttpStatus } from '@nestjs/common';
 import { PlanillasService } from './planillas.service';
-import type { PlanillasFilter, ConciliarPayload, RevertirPayload } from './planillas.service';
+import type { PlanillasFilter, ConciliarPayload, RevertirPayload, ConciliarEspecialesDto } from './planillas.service';
 
 @Controller('api/planillas')
 export class PlanillasController {
@@ -159,6 +159,47 @@ export class PlanillasController {
     } catch (error: any) {
       throw new HttpException(
         { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error al verificar cierre de lote', message: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Get('detectar-atributos-null')
+  async detectarAtributosNull(
+    @Query('fecha') fecha: string,
+    @Query('banco') banco: string,
+    @Query('expediente') expediente?: string,
+    @Query('lote_id') lote_id?: string,
+  ) {
+    if (!fecha || !banco) {
+      throw new HttpException(
+        { status: HttpStatus.BAD_REQUEST, error: 'Parámetros requeridos', message: 'fecha y banco son obligatorios.' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    try {
+      const data = await this.planillasService.detectarAtributosNull(fecha, banco, expediente, lote_id);
+      return {
+        success: true,
+        ...data,
+      };
+    } catch (error: any) {
+      throw new HttpException(
+        { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error al detectar planillas con atributos NULL', message: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Post('conciliar-especiales')
+  async conciliarPlanillasEspeciales(@Body() payload: ConciliarEspecialesDto) {
+    try {
+      const result = await this.planillasService.conciliarPlanillasEspeciales(payload);
+      return result;
+    } catch (error: any) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error al conciliar planillas especiales', message: error.message },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

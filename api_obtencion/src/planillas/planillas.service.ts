@@ -1,6 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { PostgresService } from '../database/postgres.service';
 import * as oracledb from 'oracledb';
+import * as bcrypt from 'bcryptjs';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -42,12 +44,55 @@ export interface RevertirPayload {
   agencia?: string;
 }
 
+export interface PlanillaAtributoNullItem {
+  planilla_id: string;
+  forma: string;
+  monto: number;
+  banco: string;
+  agencia: string;
+  fecha_recaudacion: string;
+  rif: string;
+  expediente?: number;
+  lote_id?: number;
+  lote_seq?: number;
+  motivo_alerta: string;
+}
+
+export interface DeteccionAtributosNullResponse {
+  total: number;
+  monto_total: number;
+  formas_detectadas: string[];
+  planillas: PlanillaAtributoNullItem[];
+}
+
+export interface ConciliarEspecialesDto {
+  usuario_email: string;
+  password_autorizacion: string;
+  motivo?: string;
+  planillas: Array<{
+    planilla_id: string;
+    forma: string;
+    monto: number;
+    banco: string;
+    agencia: string;
+    fecha_recaudacion: string;
+    rif: string;
+    expediente?: number;
+    lote_id?: number;
+    lote_seq?: number;
+    asignaciones?: PartidaAsignacion[];
+  }>;
+}
+
 @Injectable()
 export class PlanillasService {
   private validFormasCache: Set<string> = new Set();
   private lastCacheUpdate = 0;
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly pg: PostgresService
+  ) {}
 
   private async getValidFormas(connection: oracledb.Connection): Promise<Set<string>> {
     const now = Date.now();
@@ -924,5 +969,268 @@ export class PlanillasService {
         } catch {}
       }
     }
+  }
+
+  async detectarAtributosNull(
+    fecha: string,
+    banco: string,
+    expediente?: string,
+    lote_id?: string | number,
+  ): Promise<DeteccionAtributosNullResponse> {
+    if (!fecha || !banco) {
+      throw new BadRequestException('Fecha y banco son requeridos');
+    }
+
+    let query = `
+      SELECT 
+        T.PLANILLA AS PLANILLA_ID,
+        T.FORMA_CODIGO AS FORMA,
+        NVL(T.MONTO_EFECTIVO, 0) + NVL(T.MONTO_OTROS_PAGOS, 0) AS MONTO,
+        T.INFN_CODIGO AS BANCO,
+        T.AGENCIA_CODIGO AS AGENCIA,
+        TO_CHAR(T.FECHA_RECAUDACION, 'YYYY-MM-DD') AS FECHA_RECAUDACION,
+        NVL(T.IDENT_CNTB, 'S/R') AS RIF,
+        L.EXPEDIENTE,
+        L.LOTE_ID,
+        L.LOTE_SEQ,
+        CASE 
+          WHEN T.FORMA_CODIGO = '99044' THEN 'Forma 99044 (ISLR Aduanas / Retención especial)'
+          WHEN T.IDENT_CNTB IS NULL THEN 'RIF / Contribuyente NULL'
+          WHEN T.LOTE_SEQ IS NULL THEN 'LOTE_SEQ no asignado (NULL)'
+          WHEN T.PLAN_SEQ IS NULL THEN 'PLAN_SEQ no asignado (NULL)'
+          WHEN T.ANHO IS NULL THEN 'Año Fiscal no asignado (NULL)'
+          ELSE 'Atributo no vinculado'
+        END AS MOTIVO_ALERTA
+      FROM ORG_LIQ.TXT_SENIAT T
+      LEFT JOIN ORG_LIQ.LOTE L 
+        ON T.FECHA_RECAUDACION = L.FECHA_RECAUDACION 
+       AND T.INFN_CODIGO = L.INFN_CODIGO 
+       AND T.LOTE_SEQ = L.LOTE_SEQ
+      WHERE T.FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD')
+        AND T.INFN_CODIGO = :banco
+        AND (T.ESTADO IS NULL OR T.ESTADO = 0)
+        AND (
+          T.FORMA_CODIGO = '99044' 
+          OR T.IDENT_CNTB IS NULL 
+          OR (T.LOTE_SEQ IS NULL AND T.FORMA_CODIGO = '99044')
+          OR (T.LOTE_SEQ IS NOT NULL AND (T.PLAN_SEQ IS NULL OR T.ANHO IS NULL))
+        )
+    `;
+
+    const binds: any = { fecha, banco };
+
+    if (expediente && String(expediente).trim() !== '') {
+      query += ` AND (
+        L.EXPEDIENTE = :expediente 
+        OR (
+          L.EXPEDIENTE IS NULL 
+          AND T.AGENCIA_CODIGO IN (
+            SELECT DISTINCT AGENCIA_CODIGO 
+            FROM ORG_LIQ.LOTE 
+            WHERE EXPEDIENTE = :expediente 
+              AND FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD') 
+              AND INFN_CODIGO = :banco
+          )
+        )
+      )`;
+      binds.expediente = Number(expediente);
+    }
+
+    if (lote_id && String(lote_id).trim() !== '' && lote_id !== expediente) {
+      query += ` AND (
+        L.LOTE_ID = :lote_id 
+        OR (
+          L.LOTE_ID IS NULL 
+          AND T.AGENCIA_CODIGO IN (
+            SELECT DISTINCT AGENCIA_CODIGO 
+            FROM ORG_LIQ.LOTE 
+            WHERE LOTE_ID = :lote_id 
+              AND FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD') 
+              AND INFN_CODIGO = :banco
+          )
+        )
+      )`;
+      binds.lote_id = Number(lote_id);
+    }
+
+    query += ` AND ROWNUM <= 1000 ORDER BY T.FORMA_CODIGO DESC, T.PLANILLA ASC`;
+
+    const rawRows = await this.db.executeQuery<any>(query, binds);
+
+    const seen = new Set<string>();
+    const planillas: PlanillaAtributoNullItem[] = [];
+    let montoTotal = 0;
+    const formasSet = new Set<string>();
+
+    for (const r of rawRows) {
+      const pid = String(r.PLANILLA_ID);
+      if (seen.has(pid)) continue;
+      seen.add(pid);
+
+      const monto = Number(r.MONTO || 0);
+      montoTotal += monto;
+      formasSet.add(String(r.FORMA));
+
+      planillas.push({
+        planilla_id: pid,
+        forma: String(r.FORMA),
+        monto: Number(monto.toFixed(2)),
+        banco: String(r.BANCO),
+        agencia: String(r.AGENCIA || ''),
+        fecha_recaudacion: String(r.FECHA_RECAUDACION),
+        rif: String(r.RIF || 'S/R'),
+        expediente: r.EXPEDIENTE ? Number(r.EXPEDIENTE) : undefined,
+        lote_id: r.LOTE_ID ? Number(r.LOTE_ID) : undefined,
+        lote_seq: r.LOTE_SEQ ? Number(r.LOTE_SEQ) : undefined,
+        motivo_alerta: String(r.MOTIVO_ALERTA),
+      });
+    }
+
+    return {
+      total: planillas.length,
+      monto_total: Number(montoTotal.toFixed(2)),
+      formas_detectadas: Array.from(formasSet),
+      planillas,
+    };
+  }
+
+  async conciliarPlanillasEspeciales(payload: ConciliarEspecialesDto): Promise<any> {
+    const { usuario_email, password_autorizacion, planillas, motivo } = payload;
+
+    if (!usuario_email || !password_autorizacion) {
+      throw new BadRequestException('El correo del usuario y la contraseña de autorización son requeridos.');
+    }
+
+    if (!planillas || planillas.length === 0) {
+      throw new BadRequestException('No se enviaron planillas para conciliar.');
+    }
+
+    // 1. Validar contraseña contra PostgreSQL
+    const userRes = await this.pg.query<{ id: number; email: string; nombre: string; apellido: string; password_hash: string; rol: string; estado: string }>(
+      `SELECT id, email, nombre, apellido, password_hash, rol, estado 
+       FROM motor_app.usuarios 
+       WHERE LOWER(email) = LOWER($1)`,
+      [usuario_email.trim()]
+    );
+
+    if (!userRes.rows || userRes.rows.length === 0) {
+      throw new UnauthorizedException('Usuario no encontrado para autorizar la operación.');
+    }
+
+    const usuario = userRes.rows[0];
+    if (usuario.estado !== 'ACTIVO') {
+      throw new UnauthorizedException('El usuario se encuentra inactivo.');
+    }
+
+    const isMatch = await bcrypt.compare(password_autorizacion, usuario.password_hash);
+    if (!isMatch) {
+      throw new UnauthorizedException('Contraseña de autorización incorrecta.');
+    }
+
+    // 2. Ejecutar conciliación para cada planilla
+    let exitosas = 0;
+    let fallidas = 0;
+    let montoConciliado = 0;
+    const detallesResultados: any[] = [];
+    const lotesCerradosSet = new Set<string>();
+
+    for (const p of planillas) {
+      try {
+        let expediente = p.expediente;
+        let lote_id = p.lote_id;
+        let lote_seq = p.lote_seq;
+
+        // Si faltan datos de lote, buscar lote activo en la misma agencia
+        if (!lote_seq) {
+          const loteFind = await this.db.executeQuery<any>(
+            `SELECT LOTE_ID, LOTE_SEQ, EXPEDIENTE, TOTAL_PLN, ANHO
+             FROM ORG_LIQ.LOTE
+             WHERE FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD')
+               AND INFN_CODIGO = :banco
+               AND AGENCIA_CODIGO = :agencia
+               AND (ESTADO = 'P' OR ROWNUM = 1)
+               AND ROWNUM = 1`,
+            {
+              fecha: p.fecha_recaudacion.split('T')[0],
+              banco: p.banco,
+              agencia: p.agencia,
+            }
+          );
+          if (loteFind && loteFind.length > 0) {
+            lote_id = Number(loteFind[0].LOTE_ID);
+            lote_seq = Number(loteFind[0].LOTE_SEQ);
+            expediente = Number(loteFind[0].EXPEDIENTE);
+          }
+        }
+
+        // Asignaciones presupuestarias: si no vienen asignadas, para la 99044 se aplica la partida estándar
+        let asignaciones = p.asignaciones || [];
+        if (asignaciones.length === 0) {
+          if (p.forma === '99044') {
+            asignaciones = [{ partida: '301010111', monto: Number(p.monto) }];
+          } else {
+            asignaciones = [{ partida: '301010200', monto: Number(p.monto) }];
+          }
+        }
+
+        const conciliarRes = await this.conciliarPlanilla({
+          usuario_operador: usuario.email,
+          expediente: Number(expediente) || 0,
+          lote_id: Number(lote_id) || 0,
+          lote_seq: Number(lote_seq) || 0,
+          planilla_id: p.planilla_id,
+          forma: p.forma,
+          monto: Number(p.monto),
+          banco: p.banco,
+          agencia: p.agencia,
+          fecha_recaudacion: p.fecha_recaudacion.split('T')[0],
+          asignaciones,
+        });
+
+        exitosas++;
+        montoConciliado += Number(p.monto);
+        detallesResultados.push({
+          planilla_id: p.planilla_id,
+          success: true,
+          lote_cerrado: conciliarRes?.data?.lote_cerrado || false,
+        });
+
+        if (conciliarRes?.data?.lote_cerrado && lote_id) {
+          lotesCerradosSet.add(`Lote ${lote_id} (SEQ: ${lote_seq})`);
+        }
+      } catch (err: any) {
+        fallidas++;
+        detallesResultados.push({
+          planilla_id: p.planilla_id,
+          success: false,
+          error: err.message,
+        });
+      }
+    }
+
+    // 3. Registrar en auditoría
+    await this.registrarAuditoriaJson({
+      accion: 'CONCILIACION_ESPECIAL_99044',
+      usuario: usuario.email,
+      usuario_nombre: `${usuario.nombre} ${usuario.apellido}`.trim(),
+      total_solicitadas: planillas.length,
+      exitosas,
+      fallidas,
+      monto_total: Number(montoConciliado.toFixed(2)),
+      motivo: motivo || 'Conciliación autorizada de planillas con atributos NULL / Forma 99044',
+      lotes_cerrados: Array.from(lotesCerradosSet),
+      detalles: detallesResultados,
+    });
+
+    return {
+      success: true,
+      mensaje: `Conciliación especial completada: ${exitosas} de ${planillas.length} planillas procesadas exitosamente.`,
+      total_procesadas: planillas.length,
+      exitosas,
+      fallidas,
+      monto_total_conciliado: Number(montoConciliado.toFixed(2)),
+      lotes_cerrados: Array.from(lotesCerradosSet),
+      detalles: detallesResultados,
+    };
   }
 }
