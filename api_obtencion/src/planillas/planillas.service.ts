@@ -1,10 +1,31 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { PostgresService } from '../database/postgres.service';
 import * as oracledb from 'oracledb';
 import * as bcrypt from 'bcryptjs';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+
+export interface DepurarDuplicadosTxtDto {
+  fecha: string;
+  banco: string;
+  usuario_email: string;
+  password_autorizacion: string;
+  motivo?: string;
+  planillas_ids?: string[];
+  expediente?: string;
+}
+
+export interface LoteAjustadoDuplicadoInfo {
+  anho: number;
+  lote_seq: number;
+  lote_id: number;
+  expediente?: number;
+  agencia_codigo: string;
+  total_anterior: number;
+  eliminadas: number;
+  total_nuevo: number;
+}
 
 export interface PlanillasFilter {
   fecha: string;
@@ -102,6 +123,7 @@ export interface ConciliarEspecialesDto {
 
 @Injectable()
 export class PlanillasService {
+  private readonly logger = new Logger(PlanillasService.name);
   private validFormasCache: Set<string> = new Set();
   private lastCacheUpdate = 0;
 
@@ -1303,4 +1325,297 @@ export class PlanillasService {
         duplicados,
       };
     }
+
+    /**
+     * Elimina físicamente (o marca) las filas duplicadas excedentes en TXT_SENIAT
+     * (conservando 1 copia única para conciliación) y ajusta el TOTAL_PLN en ORG_LIQ.LOTE.
+     */
+    async depurarDuplicadosTxt(payload: DepurarDuplicadosTxtDto): Promise<{
+      success: boolean;
+      mensaje: string;
+      total_eliminadas: number;
+      monto_total_depurado: number;
+      lotes_ajustados: LoteAjustadoDuplicadoInfo[];
+      detalles: any[];
+    }> {
+      const { fecha, banco, usuario_email, password_autorizacion, motivo, planillas_ids, expediente } = payload;
+
+      if (!fecha || !banco) {
+        throw new BadRequestException('Fecha y banco son obligatorios.');
+      }
+      if (!usuario_email || !password_autorizacion) {
+        throw new BadRequestException('El correo del usuario y la contraseña de autorización son requeridos.');
+      }
+
+      // 1. Validar autorización de seguridad contra PostgreSQL
+      const userRes = await this.pg.query<{ id: number; email: string; nombre: string; apellido: string; password_hash: string; rol: string; estado: string }>(
+        `SELECT id, email, nombre, apellido, password_hash, rol, estado 
+         FROM motor_app.usuarios 
+         WHERE LOWER(email) = LOWER($1) AND estado = 'ACTIVO'`,
+        [usuario_email.trim()]
+      );
+
+      if (userRes.rowCount === 0) {
+        throw new UnauthorizedException('Usuario autorizador no encontrado o inactivo.');
+      }
+
+      const usuario = userRes.rows[0];
+      const passwordMatch = await bcrypt.compare(password_autorizacion, usuario.password_hash);
+      if (!passwordMatch) {
+        throw new UnauthorizedException('Contraseña de autorización incorrecta. Operación cancelada.');
+      }
+
+      // 2. Conectar a Oracle y obtener filas duplicadas con ROWID y RN > 1
+      const connection = await this.db.getConnection();
+      const lotesAfectadosMap = new Map<string, {
+        anho: number;
+        lote_seq: number;
+        lote_id: number;
+        expediente?: number;
+        agencia_codigo: string;
+        total_anterior: number;
+        eliminadas: number;
+      }>();
+
+      let totalEliminadas = 0;
+      let montoTotalDepurado = 0;
+      const formasAfectadasSet = new Set<string>();
+      const planillasAfectadasList: any[] = [];
+      const detalles: any[] = [];
+
+      try {
+        const queryExcess = `
+          SELECT 
+            ROWIDTOCHAR(T.ROWID) AS RID,
+            T.PLANILLA,
+            T.FORMA_CODIGO,
+            NVL(T.MONTO_EFECTIVO, 0) AS MONTO,
+            T.AGENCIA_CODIGO,
+            T.INFN_CODIGO AS BANCO,
+            T.LOTE_SEQ,
+            T.ANHO,
+            T.IDENT_CNTB AS RIF,
+            ROW_NUMBER() OVER (
+              PARTITION BY T.PLANILLA, T.FORMA_CODIGO, NVL(T.MONTO_EFECTIVO, 0), T.AGENCIA_CODIGO
+              ORDER BY T.ROWID ASC
+            ) AS RN
+          FROM ORG_LIQ.TXT_SENIAT T
+          WHERE T.FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD')
+            AND T.INFN_CODIGO = :banco
+            AND (T.ESTADO IS NULL OR T.ESTADO = 0)
+        `;
+
+        const resAll = await connection.execute(queryExcess, { fecha, banco }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+        const rows = (resAll.rows as any[]) || [];
+
+        // Filtrar exclusivamente los excedentes (RN > 1), conservando la primera copia (RN = 1)
+        let excessRows = rows.filter((r) => Number(r.RN) > 1);
+
+        if (planillas_ids && planillas_ids.length > 0) {
+          const idSet = new Set(planillas_ids.map((id) => String(id).trim()));
+          excessRows = excessRows.filter((r) => idSet.has(String(r.PLANILLA).trim()));
+        }
+
+        if (excessRows.length === 0) {
+          throw new BadRequestException('No se encontraron registros duplicados pendientes para eliminar.');
+        }
+
+        for (const row of excessRows) {
+          const rid = String(row.RID);
+          const pid = String(row.PLANILLA);
+          const forma = String(row.FORMA_CODIGO);
+          const monto = Number(row.MONTO || 0);
+          const agencia = String(row.AGENCIA_CODIGO || '');
+          const anhoVal = row.ANHO || new Date(fecha).getFullYear();
+
+          montoTotalDepurado += monto;
+          formasAfectadasSet.add(forma);
+
+          // Identificar Lote correspondiente
+          let loteInfo: any = null;
+          if (row.LOTE_SEQ) {
+            const loteRes = await connection.execute(
+              `SELECT LOTE_SEQ, LOTE_ID, ANHO, TOTAL_PLN, EXPEDIENTE, AGENCIA_CODIGO
+               FROM ORG_LIQ.LOTE
+               WHERE LOTE_SEQ = :loteSeq AND ANHO = :anho`,
+              { loteSeq: row.LOTE_SEQ, anho: anhoVal },
+              { outFormat: oracledb.OUT_FORMAT_OBJECT }
+            );
+            if (loteRes.rows && loteRes.rows.length > 0) {
+              loteInfo = (loteRes.rows as any[])[0];
+            }
+          }
+
+          if (!loteInfo && agencia) {
+            let loteQuery = `
+              SELECT LOTE_SEQ, LOTE_ID, ANHO, TOTAL_PLN, EXPEDIENTE, AGENCIA_CODIGO
+              FROM ORG_LIQ.LOTE
+              WHERE FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD')
+                AND INFN_CODIGO = :banco
+                AND AGENCIA_CODIGO = :agencia
+                AND ANHO = EXTRACT(YEAR FROM TO_DATE(:fecha, 'YYYY-MM-DD'))
+            `;
+            const loteBinds: any = { fecha, banco, agencia };
+            if (expediente) {
+              loteQuery += ` AND EXPEDIENTE = :expediente`;
+              loteBinds.expediente = expediente;
+            }
+            loteQuery += ` ORDER BY CASE WHEN ESTADO = 'P' THEN 1 ELSE 2 END, LOTE_ID ASC`;
+
+            const loteRes = await connection.execute(loteQuery, loteBinds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+            if (loteRes.rows && loteRes.rows.length > 0) {
+              loteInfo = (loteRes.rows as any[])[0];
+            }
+          }
+
+          if (loteInfo) {
+            const loteKey = `${loteInfo.ANHO}_${loteInfo.LOTE_SEQ}`;
+            const existing = lotesAfectadosMap.get(loteKey);
+            if (existing) {
+              existing.eliminadas += 1;
+            } else {
+              lotesAfectadosMap.set(loteKey, {
+                anho: Number(loteInfo.ANHO),
+                lote_seq: Number(loteInfo.LOTE_SEQ),
+                lote_id: Number(loteInfo.LOTE_ID),
+                expediente: loteInfo.EXPEDIENTE ? Number(loteInfo.EXPEDIENTE) : undefined,
+                agencia_codigo: String(loteInfo.AGENCIA_CODIGO || agencia),
+                total_anterior: Number(loteInfo.TOTAL_PLN || 0),
+                eliminadas: 1,
+              });
+            }
+          }
+
+          // Eliminar quirúrgicamente la fila duplicada por ROWID
+          try {
+            const delRes = await connection.execute(
+              `DELETE FROM ORG_LIQ.TXT_SENIAT WHERE ROWID = CHARTOROWID(:rid)`,
+              { rid }
+            );
+            totalEliminadas += (delRes.rowsAffected || 1);
+          } catch (delErr: any) {
+            const updRes = await connection.execute(
+              `UPDATE ORG_LIQ.TXT_SENIAT 
+               SET ESTADO = -1, ANHO = NULL, LOTE_SEQ = NULL, PLAN_SEQ = NULL 
+               WHERE ROWID = CHARTOROWID(:rid)`,
+              { rid }
+            );
+            totalEliminadas += (updRes.rowsAffected || 1);
+          }
+
+          planillasAfectadasList.push({
+            planilla: pid,
+            forma,
+            monto,
+            agencia,
+            lote_id: loteInfo ? Number(loteInfo.LOTE_ID) : undefined,
+            lote_seq: loteInfo ? Number(loteInfo.LOTE_SEQ) : undefined,
+          });
+
+          detalles.push({
+            rid,
+            planilla: pid,
+            forma,
+            monto,
+            eliminada: true,
+          });
+        }
+
+        // 3. Ajustar TOTAL_PLN de los lotes afectados en Oracle
+        const lotesAjustados: LoteAjustadoDuplicadoInfo[] = [];
+
+        for (const [, lote] of lotesAfectadosMap) {
+          await connection.execute(
+            `UPDATE ORG_LIQ.LOTE
+             SET TOTAL_PLN = GREATEST(0, TOTAL_PLN - :count)
+             WHERE ANHO = :anho AND LOTE_SEQ = :loteSeq`,
+            {
+              count: lote.eliminadas,
+              anho: lote.anho,
+              loteSeq: lote.lote_seq,
+            }
+          );
+
+          const checkLote = await connection.execute(
+            `SELECT TOTAL_PLN FROM ORG_LIQ.LOTE WHERE ANHO = :anho AND LOTE_SEQ = :loteSeq`,
+            { anho: lote.anho, loteSeq: lote.lote_seq },
+            { outFormat: oracledb.OUT_FORMAT_OBJECT }
+          );
+          const nuevoTotal = (checkLote.rows as any[])?.[0]?.TOTAL_PLN ?? Math.max(0, lote.total_anterior - lote.eliminadas);
+
+          lotesAjustados.push({
+            anho: lote.anho,
+            lote_seq: lote.lote_seq,
+            lote_id: lote.lote_id,
+            expediente: lote.expediente,
+            agencia_codigo: lote.agencia_codigo,
+            total_anterior: lote.total_anterior,
+            eliminadas: lote.eliminadas,
+            total_nuevo: Number(nuevoTotal),
+          });
+        }
+
+        // Confirmar transacción atómica en Oracle
+        await connection.commit();
+
+        // 4. Registrar en PostgreSQL en motor_app.depuracion_audit
+        try {
+          await this.pg.query(
+            `INSERT INTO motor_app.depuracion_audit (
+              usuario_email, usuario_nombre, fecha_recaudacion, banco_codigo,
+              total_registros_eliminados, monto_total_depurado, formas_afectadas,
+              planillas_afectadas, motivo_autorizacion, ip_address, detalles
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+            [
+              usuario.email,
+              `${usuario.nombre} ${usuario.apellido}`.trim(),
+              fecha,
+              banco,
+              totalEliminadas,
+              montoTotalDepurado,
+              Array.from(formasAfectadasSet).join(', '),
+              JSON.stringify(planillasAfectadasList),
+              motivo || 'Depuración autorizada de registros duplicados en archivo TXT transmitido por banco',
+              '127.0.0.1',
+              JSON.stringify({
+                tipo: 'DUPLICADOS_TXT',
+                lotes_ajustados: lotesAjustados,
+                planillas_unicas_conservadas: excessRows.length,
+              }),
+            ]
+          );
+        } catch (auditPgErr) {
+          this.logger.error('Error registrando en motor_app.depuracion_audit:', auditPgErr);
+        }
+
+        // Registrar en auditoría de eventos
+        await this.registrarAuditoriaJson({
+          accion: 'DEPURACION_DUPLICADOS_TXT',
+          usuario: usuario.email,
+          usuario_nombre: `${usuario.nombre} ${usuario.apellido}`.trim(),
+          total_solicitadas: excessRows.length,
+          exitosas: totalEliminadas,
+          fallidas: 0,
+          monto_total: Number(montoTotalDepurado.toFixed(2)),
+          motivo: motivo || 'Depuración de registros duplicados en archivo TXT',
+          lotes_ajustados: lotesAjustados,
+          detalles,
+        });
+
+        return {
+          success: true,
+          mensaje: `Se depuraron exitosamente ${totalEliminadas} registros duplicados en TXT y se ajustó el contador del lote.`,
+          total_eliminadas: totalEliminadas,
+          monto_total_depurado: Number(montoTotalDepurado.toFixed(2)),
+          lotes_ajustados: lotesAjustados,
+          detalles,
+        };
+      } catch (err: any) {
+        await connection.rollback();
+        throw err;
+      } finally {
+        await connection.close();
+      }
+    }
   }
+

@@ -1,6 +1,7 @@
-"use client";
+'use client';
 
 import React, { useState } from 'react';
+import axios from 'axios';
 import { 
   AlertTriangle, 
   X, 
@@ -9,8 +10,13 @@ import {
   FileText, 
   Layers, 
   HelpCircle,
-  TrendingDown
+  TrendingDown,
+  ShieldAlert,
+  Loader2,
+  Eye,
+  EyeOff
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 export interface DuplicadoTxtItem {
   planilla: string;
@@ -31,6 +37,7 @@ interface DuplicadosTxtModalProps {
   banco: string;
   totalBrutoTxt?: number;
   totalUnico?: number;
+  onDepuracionSuccess?: (result: any) => void;
 }
 
 export const DuplicadosTxtModal: React.FC<DuplicadosTxtModalProps> = ({
@@ -43,12 +50,58 @@ export const DuplicadosTxtModal: React.FC<DuplicadosTxtModalProps> = ({
   banco,
   totalBrutoTxt,
   totalUnico,
+  onDepuracionSuccess,
 }) => {
+  const { usuario } = useAuth();
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Estados de Autorización para Depuración
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [motivo, setMotivo] = useState('Depuración de registros duplicados en archivo TXT transmitido');
+  const [submitting, setSubmitting] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
   if (!isOpen) return null;
+
+  const handleConfirmDepuracion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!password) {
+      setAuthError('Debe ingresar su contraseña de autorización.');
+      return;
+    }
+    setSubmitting(true);
+    setAuthError(null);
+
+    try {
+      const res = await axios.post('/api/orquestador/planillas/depurar-duplicados-txt', {
+        fecha,
+        banco,
+        usuario_email: usuario?.email || 'admin@sirumatek.com',
+        password_autorizacion: password,
+        motivo: motivo.trim() || 'Depuración de registros duplicados en archivo TXT transmitido por banco',
+      });
+
+      if (res.data && res.data.success) {
+        setIsAuthOpen(false);
+        setPassword('');
+        if (onDepuracionSuccess) {
+          onDepuracionSuccess(res.data);
+        }
+        onClose();
+      }
+    } catch (err: any) {
+      const msg = err.response?.data?.message
+        ? (Array.isArray(err.response.data.message) ? err.response.data.message.join(', ') : err.response.data.message)
+        : err.message || 'Error al ejecutar depuración';
+      setAuthError(msg);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -439,28 +492,251 @@ export const DuplicadosTxtModal: React.FC<DuplicadosTxtModalProps> = ({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            gap: '12px',
           }}
         >
           <span style={{ fontSize: '12px', color: '#64748b' }}>
             Mostrando {filtered.length} de {duplicados.length} casos duplicados
           </span>
-          <button
-            onClick={onClose}
-            style={{
-              padding: '8px 20px',
-              backgroundColor: '#334155',
-              color: '#ffffff',
-              borderRadius: '8px',
-              border: 'none',
-              fontWeight: 700,
-              fontSize: '13px',
-              cursor: 'pointer',
-            }}
-          >
-            Cerrar Auditoría
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {totalDuplicadas > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthError(null);
+                  setIsAuthOpen(true);
+                }}
+                style={{
+                  padding: '9px 18px',
+                  backgroundColor: '#DC2626',
+                  color: '#ffffff',
+                  borderRadius: '8px',
+                  border: 'none',
+                  fontWeight: 700,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '7px',
+                  boxShadow: '0 2px 4px rgba(220, 38, 38, 0.2)',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <ShieldAlert size={15} />
+                Depurar Duplicadas y Ajustar Lote ({totalDuplicadas})
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              style={{
+                padding: '9px 20px',
+                backgroundColor: '#334155',
+                color: '#ffffff',
+                borderRadius: '8px',
+                border: 'none',
+                fontWeight: 700,
+                fontSize: '13px',
+                cursor: 'pointer',
+              }}
+            >
+              Cerrar Auditoría
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Modal de Autorización de Seguridad */}
+      {isAuthOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(6px)',
+            zIndex: 100000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+            animation: 'fadeIn 0.15s ease-out',
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: '16px',
+              width: '100%',
+              maxWidth: '520px',
+              padding: '24px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.3)',
+              border: '1px solid #e2e8f0',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: '#FEE2E2', color: '#DC2626' }}>
+                  <ShieldAlert size={20} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: '#0F172A' }}>
+                    Autorización de Depuración de Duplicados
+                  </h3>
+                  <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748B' }}>
+                    Ajuste de contador y saneamiento contable en Oracle
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => !submitting && setIsAuthOpen(false)}
+                disabled={submitting}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: '12px 14px', backgroundColor: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '10px', marginBottom: '18px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#991B1B', marginBottom: '4px' }}>
+                Impacto Operativo Confirmado:
+              </div>
+              <div style={{ fontSize: '12px', color: '#7F1D1D', lineHeight: 1.5 }}>
+                Se eliminarán <strong>{totalDuplicadas} registros repetidos excedentes</strong> en <code>TXT_SENIAT</code> (conservando exactamente 1 copia legítima de cada planilla).
+                {totalBrutoTxt && totalUnico ? (
+                  <div style={{ marginTop: '4px', fontWeight: 600 }}>
+                    El contador del lote (<code>TOTAL_PLN</code>) se ajustará de <strong>{totalBrutoTxt}</strong> a <strong>{totalUnico}</strong> planillas.
+                  </div>
+                ) : null}
+                <div style={{ marginTop: '4px' }}>
+                  Monto a depurar del archivo: <strong>Bs. {Number(montoTotalDuplicadas || 0).toLocaleString('es-VE', { minimumFractionDigits: 2 })}</strong>.
+                </div>
+              </div>
+            </div>
+
+            {authError && (
+              <div style={{ padding: '10px 12px', backgroundColor: '#FFF1F2', border: '1px solid #FDA4AF', borderRadius: '8px', color: '#E11D48', fontSize: '12.5px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+                <span>{authError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleConfirmDepuracion}>
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
+                  Contraseña de Autorización del Operador
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Ingrese su clave de acceso"
+                    required
+                    autoFocus
+                    disabled={submitting}
+                    style={{
+                      width: '100%',
+                      height: '40px',
+                      padding: '0 40px 0 12px',
+                      fontSize: '14px',
+                      borderRadius: '8px',
+                      border: '1px solid #CBD5E1',
+                      outline: 'none',
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={{
+                      position: 'absolute',
+                      right: '10px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: '#64748B',
+                    }}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
+                  Motivo Formal de Depuración
+                </label>
+                <input
+                  type="text"
+                  value={motivo}
+                  onChange={(e) => setMotivo(e.target.value)}
+                  required
+                  disabled={submitting}
+                  style={{
+                    width: '100%',
+                    height: '40px',
+                    padding: '0 12px',
+                    fontSize: '13px',
+                    borderRadius: '8px',
+                    border: '1px solid #CBD5E1',
+                    outline: 'none',
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => !submitting && setIsAuthOpen(false)}
+                  disabled={submitting}
+                  style={{
+                    padding: '9px 18px',
+                    backgroundColor: '#F1F5F9',
+                    color: '#475569',
+                    borderRadius: '8px',
+                    border: '1px solid #CBD5E1',
+                    fontWeight: 700,
+                    fontSize: '13px',
+                    cursor: submitting ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting || !password}
+                  style={{
+                    padding: '9px 22px',
+                    backgroundColor: submitting ? '#94A3B8' : '#DC2626',
+                    color: '#ffffff',
+                    borderRadius: '8px',
+                    border: 'none',
+                    fontWeight: 700,
+                    fontSize: '13px',
+                    cursor: submitting || !password ? 'not-allowed' : 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 size={15} className="animate-spin" />
+                      Ejecutando Depuración en Oracle...
+                    </>
+                  ) : (
+                    <>
+                      <ShieldAlert size={15} />
+                      Confirmar y Depurar Duplicadas
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+

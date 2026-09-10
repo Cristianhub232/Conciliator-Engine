@@ -974,6 +974,9 @@ export const NotasCreditoView: React.FC = () => {
         banco={banco}
         totalBrutoTxt={totalesSeniat.planillas_pendientes}
         totalUnico={totalesSeniat.planillas_pendientes_unicas}
+        onDepuracionSuccess={() => {
+          fetchNotasCredito();
+        }}
       />
     </div>
   );

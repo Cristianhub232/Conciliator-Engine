@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Search, CheckCircle, AlertCircle, Layers, ServerCog, Filter, X, Loader2, Square, AlertTriangle, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { Search, CheckCircle, AlertCircle, Layers, ServerCog, Filter, X, Loader2, Square, AlertTriangle, RefreshCw, CheckCircle2, ShieldAlert } from 'lucide-react';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { SplashLoader } from '../components/SplashLoader';
 import { LoginView } from '../components/LoginView';
@@ -750,32 +750,55 @@ function OrquestadorPageInner() {
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setIsDuplicadosModalOpen(true)}
-            className="btn"
-            style={{
-              background: 'linear-gradient(135deg, #0284C7 0%, #0369A1 100%)',
-              color: '#ffffff',
-              height: '38px',
-              padding: '0 16px',
-              fontSize: '12.5px',
-              fontWeight: 800,
-              borderRadius: '8px',
-              border: 'none',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              boxShadow: '0 2px 8px rgba(2, 132, 199, 0.3)',
-              whiteSpace: 'nowrap',
-              transition: 'transform 0.15s ease'
-            }}
-            onMouseOver={(e) => (e.currentTarget.style.transform = 'translateY(-1px)')}
-            onMouseOut={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
-          >
-            Ver {duplicadosTxtData.total_duplicadas} Duplicadas en TXT →
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={() => setIsDuplicadosModalOpen(true)}
+              className="btn"
+              style={{
+                background: 'linear-gradient(135deg, #DC2626 0%, #B91C1C 100%)',
+                color: '#ffffff',
+                height: '38px',
+                padding: '0 16px',
+                fontSize: '12.5px',
+                fontWeight: 800,
+                borderRadius: '8px',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: '0 2px 8px rgba(220, 38, 38, 0.3)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <ShieldAlert size={15} />
+              Depurar Duplicadas
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsDuplicadosModalOpen(true)}
+              className="btn"
+              style={{
+                background: 'linear-gradient(135deg, #0284C7 0%, #0369A1 100%)',
+                color: '#ffffff',
+                height: '38px',
+                padding: '0 16px',
+                fontSize: '12.5px',
+                fontWeight: 800,
+                borderRadius: '8px',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: '0 2px 8px rgba(2, 132, 199, 0.3)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Ver {duplicadosTxtData.total_duplicadas} Duplicadas en TXT →
+            </button>
+          </div>
         </div>
       )}
 
@@ -1602,7 +1625,12 @@ function OrquestadorPageInner() {
         banco={banco}
         totalBrutoTxt={planillas.length + (duplicadosTxtData?.total_duplicadas || 0)}
         totalUnico={planillas.length}
+        onDepuracionSuccess={(result) => {
+          setAuditFeedback({ forma: 'TXT_DUP', message: `✅ ${result.mensaje}` });
+          handleSearch({ preventDefault: () => {} });
+        }}
       />
+
     </div>
   );
 }

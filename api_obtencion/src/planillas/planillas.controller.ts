@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Body, Query, Param, HttpException, HttpStatus } from '@nestjs/common';
 import { PlanillasService } from './planillas.service';
-import type { PlanillasFilter, ConciliarPayload, RevertirPayload, ConciliarEspecialesDto } from './planillas.service';
+import type { PlanillasFilter, ConciliarPayload, RevertirPayload, ConciliarEspecialesDto, DepurarDuplicadosTxtDto } from './planillas.service';
 
 function sanitizeBanco(banco?: string): string {
   if (!banco) return '';
@@ -241,4 +241,22 @@ export class PlanillasController {
       );
     }
   }
+
+  @Post('depurar-duplicados-txt')
+  async depurarDuplicadosTxt(@Body() payload: DepurarDuplicadosTxtDto) {
+    if (payload.banco) {
+      payload.banco = sanitizeBanco(payload.banco);
+    }
+    try {
+      const result = await this.planillasService.depurarDuplicadosTxt(payload);
+      return result;
+    } catch (error: any) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error al depurar duplicados en TXT', message: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
 }
+
