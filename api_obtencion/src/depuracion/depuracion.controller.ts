@@ -41,11 +41,15 @@ export class DepuracionController {
     @Query('banco') banco: string,
     @Query('expediente') expediente?: string
   ) {
-    return this.depuracionService.escanearLote(fecha, banco, expediente);
+    const cleanBanco = banco ? (banco.length === 4 && banco.startsWith('0') ? banco.substring(1) : banco) : banco;
+    return this.depuracionService.escanearLote(fecha, cleanBanco, expediente);
   }
 
   @Post('ejecutar')
   async ejecutarDepuracion(@Body() payload: EjecutarDepuracionDto, @Req() req: any) {
+    if (payload.banco && payload.banco.length === 4 && payload.banco.startsWith('0')) {
+      payload.banco = payload.banco.substring(1);
+    }
     const ip = req.ip || req.headers['x-forwarded-for'] || '127.0.0.1';
     return this.depuracionService.ejecutarDepuracion(payload, String(ip));
   }

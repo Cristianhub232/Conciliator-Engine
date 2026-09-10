@@ -13,6 +13,7 @@ import { TelegramModule } from './telegram/telegram.module';
 import { BotConfigModule } from './bot-config/bot-config.module';
 import { FormasAuditoriaModule } from './formas-auditoria/formas-auditoria.module';
 import { NotasCreditoModule } from './notas-credito/notas-credito.module';
+import { BancosModule } from './bancos/bancos.module';
 import { ConfigModule } from '@nestjs/config';
 import * as path from 'path';
 import { loadRequiredEnvironment } from './config/env-loader';
@@ -35,7 +36,8 @@ import { loadRequiredEnvironment } from './config/env-loader';
     TelegramModule,
     BotConfigModule,
     FormasAuditoriaModule,
-    NotasCreditoModule
+    NotasCreditoModule,
+    BancosModule
   ],
   controllers: [AppController],
   providers: [AppService],

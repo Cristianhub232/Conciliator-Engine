@@ -29,6 +29,8 @@ import {
   ToggleRight
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { BancoSelector } from './BancoSelector';
+import { getBancoLabel, getBancoNombre } from '../services/bancosCatalog';
 
 interface FormaDepuracionItem {
   id: number;
@@ -443,24 +445,11 @@ export const DepuracionView: React.FC = () => {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#6B7C90' }}>BANCO RECAUDADOR</label>
-              <select
+              <BancoSelector
                 value={banco}
-                onChange={(e) => setBanco(e.target.value)}
+                onChange={setBanco}
                 style={{ height: '38px', padding: '0 9px', fontSize: '13.5px', fontWeight: 600, color: '#14263C', background: '#ffffff', border: '1px solid #E1E7EE', borderRadius: '8px', outline: 'none', cursor: 'pointer' }}
-                required
-              >
-                <option value="105">105 — BANCO MERCANTIL</option>
-                <option value="102">102 — BANCO DE VENEZUELA</option>
-                <option value="104">104 — BANCO VENEZOLANO DE CRÉDITO</option>
-                <option value="108">108 — BANCO PROVINCIAL</option>
-                <option value="114">114 — BANCARIBE</option>
-                <option value="115">115 — BANCO EXTERIOR</option>
-                <option value="116">116 — BANCO OCCIDENTAL DE DESCUENTO</option>
-                <option value="128">128 — BANCO CARONÍ</option>
-                <option value="134">134 — BANESCO</option>
-                <option value="163">163 — BANCO DEL TESORO</option>
-                <option value="175">175 — BANCO BICENTENARIO</option>
-              </select>
+              />
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -995,7 +984,7 @@ export const DepuracionView: React.FC = () => {
                 </div>
                 <div>
                   <span style={{ color: 'var(--text-muted)' }}>Fecha / Banco:</span>
-                  <div className="mono" style={{ fontWeight: 700 }}>{fecha} (Banco {banco}){expediente ? ` · Exp ${expediente}` : ''}</div>
+                  <div className="mono" style={{ fontWeight: 700 }}>{fecha} ({getBancoLabel(banco) || `Banco ${banco}`}){expediente ? ` · Exp ${expediente}` : ''}</div>
                 </div>
               </div>
 

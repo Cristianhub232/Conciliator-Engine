@@ -2,6 +2,15 @@ import { Controller, Get, Post, Body, Query, Param, HttpException, HttpStatus } 
 import { PlanillasService } from './planillas.service';
 import type { PlanillasFilter, ConciliarPayload, RevertirPayload, ConciliarEspecialesDto } from './planillas.service';
 
+function sanitizeBanco(banco?: string): string {
+  if (!banco) return '';
+  const clean = String(banco).trim();
+  if (clean.length === 4 && clean.startsWith('0')) {
+    return clean.substring(1);
+  }
+  return clean;
+}
+
 @Controller('api/planillas')
 export class PlanillasController {
   constructor(private readonly planillasService: PlanillasService) {}
@@ -28,9 +37,10 @@ export class PlanillasController {
     }
 
     try {
+      const cleanBanco = sanitizeBanco(banco);
       const filters: PlanillasFilter = {
         fecha,
-        banco,
+        banco: cleanBanco,
         estado_asignacion,
         expediente,
         lote_id: lote_id ? Number(lote_id) : undefined,
@@ -67,6 +77,8 @@ export class PlanillasController {
         );
       }
     }
+
+    payload.banco = sanitizeBanco(payload.banco);
 
     // Regla de Negocio: Validar Formas Excluidas
     const formasExcluidas = ['00000', '99999']; // TODO: Reemplazar con las formas excluidas reales
@@ -178,7 +190,7 @@ export class PlanillasController {
       );
     }
     try {
-      const data = await this.planillasService.detectarAtributosNull(fecha, banco, expediente, lote_id);
+      const data = await this.planillasService.detectarAtributosNull(fecha, sanitizeBanco(banco), expediente, lote_id);
       return {
         success: true,
         ...data,
@@ -203,7 +215,7 @@ export class PlanillasController {
       );
     }
     try {
-      const data = await this.planillasService.detectarDuplicadosTxt(fecha, banco);
+      const data = await this.planillasService.detectarDuplicadosTxt(fecha, banco ? sanitizeBanco(banco) : undefined);
       return {
         success: true,
         ...data,

@@ -23,23 +23,15 @@ import {
   TrendingDown
 } from 'lucide-react';
 import { DuplicadosTxtModal, DuplicadoTxtItem } from './DuplicadosTxtModal';
+import { BancoSelector } from './BancoSelector';
+import { getBancoNombre, MAPA_BANCOS } from '../services/bancosCatalog';
 
-export const BANCOS_CATALOGO: Record<string, string> = {
-  '102': 'BANCO DE VENEZUELA',
-  '104': 'BANCO VENEZOLANO DE CRÉDITO',
-  '105': 'BANCO MERCANTIL',
-  '108': 'BANCO PROVINCIAL',
-  '114': 'BANCARIBE',
-  '115': 'BANCO EXTERIOR',
-  '116': 'BANCO OCCIDENTAL DE DESCUENTO',
-  '128': 'BANCO CARONÍ',
-  '134': 'BANESCO',
-  '163': 'BANCO DEL TESORO',
-  '172': 'BANCAMIGA',
-  '174': 'BANPLUS',
-  '175': 'BANCO DIGITAL DE LOS TRABAJADORES (BICENTENARIO)',
-  '177': 'BANFANB',
-};
+export const BANCOS_CATALOGO: Record<string, string> = new Proxy(
+  Object.fromEntries(Object.entries(MAPA_BANCOS).map(([k, v]) => [k, v.nombre_corto])),
+  {
+    get: (target, prop: string) => target[prop] || getBancoNombre(prop),
+  }
+);
 
 export const NotasCreditoView: React.FC = () => {
   // Filtros
@@ -209,9 +201,11 @@ export const NotasCreditoView: React.FC = () => {
             <label style={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.08em', color: '#475569', display: 'flex', alignItems: 'center', gap: '5px' }}>
               <Building2 size={13} color="#2563EB" /> BANCO RECAUDADOR
             </label>
-            <select
+            <BancoSelector
               value={banco}
-              onChange={(e) => setBanco(e.target.value)}
+              onChange={(b) => setBanco(b)}
+              includeTodos={true}
+              todosLabel="TODOS LOS BANCOS"
               style={{
                 height: '38px',
                 padding: '0 12px',
@@ -225,22 +219,7 @@ export const NotasCreditoView: React.FC = () => {
                 minWidth: '280px',
                 cursor: 'pointer'
               }}
-            >
-              <option value="TODOS">TODOS LOS BANCOS</option>
-              <option value="102">102 — BANCO DE VENEZUELA</option>
-              <option value="105">105 — BANCO MERCANTIL</option>
-              <option value="134">134 — BANESCO</option>
-              <option value="108">108 — BANCO PROVINCIAL</option>
-              <option value="104">104 — BANCO VENEZOLANO DE CRÉDITO</option>
-              <option value="114">114 — BANCARIBE</option>
-              <option value="115">115 — BANCO EXTERIOR</option>
-              <option value="128">128 — BANCO CARONÍ</option>
-              <option value="163">163 — BANCO DEL TESORO</option>
-              <option value="175">175 — BANCO DIGITAL TRABAJADORES (BICENTENARIO)</option>
-              <option value="172">172 — BANCAMIGA</option>
-              <option value="174">174 — BANPLUS</option>
-              <option value="177">177 — BANFANB</option>
-            </select>
+            />
           </div>
 
           {/* Expediente (Opcional) */}

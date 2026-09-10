@@ -20,6 +20,8 @@ import { ResumenOperacionModal, ResumenOperacionData } from '../components/Resum
 import { AppVersionBadge } from '../components/AppVersionBadge';
 import { PlanillasAtributosNullModal } from '../components/PlanillasAtributosNullModal';
 import { DuplicadosTxtModal } from '../components/DuplicadosTxtModal';
+import { BancoSelector } from '../components/BancoSelector';
+import { getBancoLabel } from '../services/bancosCatalog';
 
 function OrquestadorPageInner() {
   const { isAuthenticated, loading: authLoading, usuario } = useAuth();
@@ -571,7 +573,7 @@ function OrquestadorPageInner() {
           </div>
           <div className="field">
             <label className="field-label">Banco</label>
-            <input type="text" value={banco} onChange={e => setBanco(e.target.value)} required placeholder="Ej: 105" className="input-field mono" />
+            <BancoSelector value={banco} onChange={setBanco} className="input-field" />
           </div>
           <div className="field">
             <label className="field-label">N° Lote (Opcional)</label>
@@ -917,7 +919,7 @@ function OrquestadorPageInner() {
                     : Object.keys(lotesCount).length > 1 
                       ? `${Object.keys(lotesCount).length} Lotes activos` 
                       : `Lote ${planillas[0]?.LOTE_ID || '1'}`
-                } · Banco {banco}
+                } · {getBancoLabel(banco) || `Banco ${banco}`}
               </div>
             </div>
 
