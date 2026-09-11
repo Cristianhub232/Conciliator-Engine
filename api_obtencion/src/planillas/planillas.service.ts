@@ -6,6 +6,16 @@ import * as bcrypt from 'bcryptjs';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
+export interface CerrarExpedienteDto {
+  expediente: number;
+  anho: number;
+  analista_asignado: string;
+  usuario_operador?: string;
+  observacion?: string;
+  fecha_recaudacion?: string;
+  banco?: string;
+}
+
 export interface DepurarDuplicadosTxtDto {
   fecha: string;
   banco: string;
@@ -1617,5 +1627,251 @@ export class PlanillasService {
         await connection.close();
       }
     }
+
+  // Obtener analistas activos para revisión/validación en SIGECOF (Tarea 2062, Organismo 93)
+  async getAnalistasRevisores() {
+    const query = `
+      SELECT U.USERS_ID, 
+             NVL(U.USERS_NOMBRE_CORTO, '') AS NOMBRE,
+             NVL(U.USERS_NOMBRE_LARGO, '') AS APELLIDO,
+             TRIM(NVL(U.USERS_NOMBRE_CORTO, '') || ' ' || NVL(U.USERS_NOMBRE_LARGO, '')) AS NOMBRE_COMPLETO,
+             U.USERS_STATUS AS STATUS,
+             TO_CHAR(MAX(WI.WI_FECHA_CREACION), 'YYYY-MM-DD HH24:MI:SS') AS ULTIMA_ASIGNACION,
+             COUNT(WI.WORKITEM) AS TOTAL_ASIGNADOS
+      FROM WFE_WORKFLOW.WF_USERS U
+      JOIN WFE_WORKFLOW.WF_WORK_ITEM WI ON U.USERS_ID = WI.WFUS_USERS_ID
+      WHERE WI.ORGA_ID = '93'
+        AND WI.WFTA_TAREA_ID = 2062
+        AND U.USERS_STATUS = 'A'
+      GROUP BY U.USERS_ID, U.USERS_NOMBRE_CORTO, U.USERS_NOMBRE_LARGO, U.USERS_STATUS
+      ORDER BY MAX(WI.WI_FECHA_CREACION) DESC NULLS LAST, COUNT(WI.WORKITEM) DESC
+    `;
+    const rows = await this.db.executeQuery<any>(query);
+    return {
+      success: true,
+      total: rows.length,
+      analistas: rows.map(r => ({
+        users_id: r.USERS_ID,
+        nombre: r.NOMBRE,
+        apellido: r.APELLIDO,
+        nombre_completo: r.NOMBRE_COMPLETO || r.USERS_ID,
+        status: r.STATUS,
+        ultima_asignacion: r.ULTIMA_ASIGNACION,
+        total_asignados: Number(r.TOTAL_ASIGNADOS || 0),
+      })),
+    };
   }
+
+  // Cerrar expediente y reasignar a fase de validación (Tarea 2062)
+  async cerrarExpedienteYReasignar(dto: CerrarExpedienteDto) {
+    const { expediente, anho, analista_asignado, usuario_operador, observacion, fecha_recaudacion, banco } = dto;
+
+    if (!expediente || !anho || !analista_asignado) {
+      throw new BadRequestException('Los campos expediente, anho y analista_asignado son obligatorios.');
+    }
+
+    const expNum = Number(expediente);
+    const anhoNum = Number(anho);
+
+    // 1. Validar que los lotes del expediente existan y estén TODOS en estado 'V'
+    const lotesQuery = `
+      SELECT LOTE_ID, LOTE_SEQ, ANHO, EXPEDIENTE, TOTAL_PLN, ESTADO, INFN_CODIGO, AGENCIA_CODIGO, 
+             TO_CHAR(FECHA_RECAUDACION, 'YYYY-MM-DD') AS FECHA_RECAUDACION
+      FROM ORG_LIQ.LOTE
+      WHERE EXPEDIENTE = :expNum AND ANHO = :anhoNum
+      ORDER BY LOTE_ID ASC
+    `;
+    const lotes = await this.db.executeQuery<any>(lotesQuery, { expNum, anhoNum });
+
+    if (!lotes || lotes.length === 0) {
+      throw new BadRequestException(`No se encontraron lotes asociados al expediente ${expNum} para el año ${anhoNum}.`);
+    }
+
+    const lotesPendientes = lotes.filter(l => l.ESTADO !== 'V');
+    if (lotesPendientes.length > 0) {
+      const detallePendientes = lotesPendientes
+        .map(l => `Lote ${l.LOTE_ID} (SEQ: ${l.LOTE_SEQ}, Estado: '${l.ESTADO}')`)
+        .join(', ');
+      throw new BadRequestException(
+        `No se puede cerrar el expediente ${expNum}: Existen ${lotesPendientes.length} lote(s) que aún no están en estado 'V': ${detallePendientes}. Todos los lotes deben estar en estado 'V' antes de transferir a validación.`
+      );
+    }
+
+    // 2. Validar que no existan planillas pendientes de conciliar en TXT_SENIAT para los lotes de este expediente
+    const txtCheckQuery = `
+      SELECT COUNT(*) AS CANT_PENDIENTES
+      FROM ORG_LIQ.TXT_SENIAT T
+      WHERE EXISTS (
+          SELECT 1 FROM ORG_LIQ.LOTE L
+          WHERE L.EXPEDIENTE = :expNum AND L.ANHO = :anhoNum
+            AND L.FECHA_RECAUDACION = T.FECHA_RECAUDACION
+            AND L.INFN_CODIGO = T.INFN_CODIGO
+            AND L.AGENCIA_CODIGO = T.AGENCIA_CODIGO
+      )
+      AND (T.ESTADO IS NULL OR T.ESTADO = 0)
+    `;
+    const txtCheckRes = await this.db.executeQuery<any>(txtCheckQuery, { expNum, anhoNum });
+    const cantPendientesTxt = Number(txtCheckRes?.[0]?.CANT_PENDIENTES || 0);
+    if (cantPendientesTxt > 0) {
+      throw new BadRequestException(
+        `No se puede cerrar el expediente ${expNum}: Existen ${cantPendientesTxt} planilla(s) en TXT_SENIAT pendientes de conciliar (ESTADO IS NULL o 0).`
+      );
+    }
+
+    // 3. Validar que el analista seleccionado existe y está activo
+    const userCheckQuery = `
+      SELECT USERS_ID, USERS_NOMBRE_CORTO, USERS_NOMBRE_LARGO, USERS_STATUS
+      FROM WFE_WORKFLOW.WF_USERS
+      WHERE USERS_ID = :analista AND USERS_STATUS = 'A'
+    `;
+    const userRows = await this.db.executeQuery<any>(userCheckQuery, { analista: analista_asignado.trim() });
+    if (!userRows || userRows.length === 0) {
+      throw new BadRequestException(`El analista revisor '${analista_asignado}' no es un usuario activo en SIGECOF.`);
+    }
+    const analistaObj = userRows[0];
+    const nombreAnalista = `${analistaObj.USERS_NOMBRE_CORTO || ''} ${analistaObj.USERS_NOMBRE_LARGO || ''}`.trim();
+
+    // 4. Consultar historial de WF_WORK_ITEM para este expediente
+    const wiQuery = `
+      SELECT WORKITEM, WFEX_EXP_ID, ANHO, ORGA_ID, WI_NOMBRE, WI_DESCRIPCION, WI_ORIGEN,
+             WI_ESTADO, WFUS_USERS_ID, WFTA_TAREA_ID
+      FROM WFE_WORKFLOW.WF_WORK_ITEM
+      WHERE WFEX_EXP_ID = :expNum AND ANHO = :anhoNum AND ORGA_ID = '93'
+      ORDER BY WORKITEM ASC
+    `;
+    const workItems = await this.db.executeQuery<any>(wiQuery, { expNum, anhoNum });
+
+    // Calcular el siguiente WORKITEM
+    let maxWi = 0;
+    for (const wi of workItems) {
+      const n = Number(wi.WORKITEM);
+      if (!isNaN(n) && n > maxWi) maxWi = n;
+    }
+    const nextWi = maxWi + 1;
+
+    // Identificar workitem actual activo (2061 o 2060 en estado PENDIENTE / ABIERTA)
+    const currentActiveWi = workItems.find(w =>
+      (w.WI_ESTADO === 'PENDIENTE' || w.WI_ESTADO === 'ABIERTA') &&
+      (Number(w.WFTA_TAREA_ID) === 2061 || Number(w.WFTA_TAREA_ID) === 2060)
+    ) || workItems[workItems.length - 1];
+
+    const currentWiNum = currentActiveWi ? Number(currentActiveWi.WORKITEM) : null;
+    const origenUsuario = usuario_operador || currentActiveWi?.WFUS_USERS_ID || 'ONT_SIR_BOT';
+
+    // Armar descripción del workitem manteniendo el formato estándar de SIGECOF
+    const fechaLote = fecha_recaudacion || lotes[0]?.FECHA_RECAUDACION || '';
+    const bancoLote = banco || lotes[0]?.INFN_CODIGO || '';
+    let descripcionWi = currentActiveWi?.WI_DESCRIPCION;
+    if (!descripcionWi) {
+      const fechaParts = String(fechaLote).split('-');
+      const fechaDDMMYYYY = fechaParts.length === 3 ? `${fechaParts[2]}/${fechaParts[1]}/${fechaParts[0]}` : fechaLote;
+      descripcionWi = `REASIGNACION - Banco: ${bancoLote} Dia: ${fechaDDMMYYYY}`;
+    }
+
+    // 5. Ejecutar transición en Oracle
+    const writeConn = await this.db.getConnection();
+    let currentWiCerrado = false;
+    let newWiCreado = false;
+
+    try {
+      // 5.1 Intentar cerrar el work item actual si existe y no está cerrado
+      if (currentWiNum && currentActiveWi?.WI_ESTADO !== 'CERRADA') {
+        try {
+          await writeConn.execute(
+            `UPDATE WFE_WORKFLOW.WF_WORK_ITEM
+             SET WI_ESTADO = 'CERRADA',
+                 WI_FECHA_CIERRE = SYSDATE,
+                 WI_OBSERVACION = NVL(:observacion, WI_OBSERVACION)
+             WHERE WFEX_EXP_ID = :expNum
+               AND ANHO = :anhoNum
+               AND ORGA_ID = '93'
+               AND WORKITEM = :currentWiNum`,
+            {
+              expNum,
+              anhoNum,
+              currentWiNum,
+              observacion: observacion || `Cierre de conciliación y pase a validación para ${analista_asignado}`,
+            },
+            { autoCommit: false }
+          );
+          currentWiCerrado = true;
+        } catch (updateErr: any) {
+          this.logger.warn(`Aviso al actualizar WI actual ${currentWiNum} a CERRADA: ${updateErr.message}`);
+        }
+      }
+
+      // 5.2 Insertar el nuevo WORKITEM asignado al analista revisor para Tarea 2062 (Validar Conciliación de Ingreso)
+      await writeConn.execute(
+        `INSERT INTO WFE_WORKFLOW.WF_WORK_ITEM (
+           WORKITEM, WFEX_EXP_ID, ANHO, ORGA_ID,
+           WI_NOMBRE, WI_DESCRIPCION, WI_ORIGEN,
+           WI_PRIORIDAD, WI_ESTADO, WI_FECHA_CREACION,
+           WI_FECHA_VENCIMIENTO, WFUS_USERS_ID,
+           WFTA_TAREA_ID, WI_OBSERVACION
+         ) VALUES (
+           :nextWi, :expNum, :anhoNum, '93',
+           'Validar Conciliación de Ingreso',
+           :descripcion, :usuarioOrigen,
+           '1', 'PENDIENTE', SYSDATE,
+           SYSDATE + 3, :analistaAsignado,
+           2062, :observacion
+         )`,
+        {
+          nextWi,
+          expNum,
+          anhoNum,
+          descripcion: descripcionWi,
+          usuarioOrigen: origenUsuario,
+          analistaAsignado: analista_asignado.trim(),
+          observacion: observacion || `Expediente conciliado y transferido a validación por ${origenUsuario}`,
+        },
+        { autoCommit: false }
+      );
+      newWiCreado = true;
+
+      await writeConn.commit();
+    } catch (dbErr: any) {
+      await writeConn.rollback();
+      throw new BadRequestException(`Error ejecutando la transición en Oracle Workflow: ${dbErr.message}`);
+    } finally {
+      try { await writeConn.close(); } catch {}
+    }
+
+    // 6. Auditoría y Trazabilidad
+    const totalPlanillas = lotes.reduce((sum, l) => sum + Number(l.TOTAL_PLN || 0), 0);
+    const auditData = {
+      accion: 'CIERRE_EXPEDIENTE_REASIGNACION',
+      expediente: expNum,
+      anho: anhoNum,
+      usuario_operador: origenUsuario,
+      analista_asignado: analista_asignado.trim(),
+      analista_nombre: nombreAnalista,
+      lotes_cerrados: lotes.length,
+      total_planillas: totalPlanillas,
+      workitem_anterior: currentWiNum,
+      workitem_anterior_cerrado: currentWiCerrado,
+      workitem_nuevo: nextWi,
+      tarea_id: 2062,
+      tarea_nombre: 'Validar Conciliación de Ingreso',
+      observacion: observacion || 'Transferencia exitosa a fase de validación',
+      timestamp: new Date().toISOString(),
+    };
+
+    await this.registrarAuditoriaJson(auditData);
+
+    return {
+      success: true,
+      mensaje: `Expediente ${expNum} cerrado exitosamente y transferido a Validación (Tarea 2062) asignado a ${analista_asignado} (${nombreAnalista}).`,
+      expediente: expNum,
+      anho: anhoNum,
+      workitem_anterior: currentWiNum,
+      workitem_anterior_cerrado: currentWiCerrado,
+      workitem_nuevo: nextWi,
+      analista_asignado: analista_asignado.trim(),
+      analista_nombre: nombreAnalista,
+      lotes_validados: lotes.length,
+      total_planillas: totalPlanillas,
+    };
+  }
+}
 

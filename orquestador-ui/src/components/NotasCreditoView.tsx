@@ -20,7 +20,8 @@ import {
   ArrowRightLeft,
   X,
   ShieldCheck,
-  TrendingDown
+  TrendingDown,
+  FolderCheck
 } from 'lucide-react';
 import { DuplicadosTxtModal, DuplicadoTxtItem } from './DuplicadosTxtModal';
 import { BancoSelector } from './BancoSelector';
@@ -43,7 +44,7 @@ export const NotasCreditoView: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any>(null);
   const [formasSeniat, setFormasSeniat] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'ncs' | 'formas'>('ncs');
+  const [activeTab, setActiveTab] = useState<'ncs' | 'expedientes' | 'formas'>('ncs');
   const [selectedNc, setSelectedNc] = useState<any | null>(null);
   const [modalData, setModalData] = useState<any | null>(null);
   const [loadingModal, setLoadingModal] = useState(false);
@@ -117,9 +118,12 @@ export const NotasCreditoView: React.FC = () => {
 
   const totalesNc = data?.totales_nc || { cantidad: 0, monto_total: 0, monto_efectivo: 0, monto_cheque: 0, monto_otros: 0 };
   const totalesSeniat = data?.totales_seniat || { total_planillas: 0, total_monto: 0, monto_conciliado: 0, monto_pendiente: 0, planillas_conciliadas: 0, planillas_pendientes: 0 };
+  const totalesTranscrito = data?.totales_transcrito || { cantidad: 0, monto_total: 0, monto_efectivo: 0, monto_cheque_otros: 0, cant_lotes: 0, expedientes: [] };
+  const comparacion = data?.comparacion_general || { monto_nc: 0, monto_transcrito: 0, monto_txt_total: 0, monto_txt_pendiente: 0, diferencia_nc_vs_transcrito: 0, diferencia_nc_vs_total_dia: 0, diferencia_proyectada_cierre: 0, porcentaje_avance_transcrito: 0, estado_cuadre: 'CUADRADO' };
   const brecha = data?.brecha || { diferencia_nc_vs_txt_pendiente: 0, diferencia_nc_vs_txt_total: 0, alerta_discrepancia: false, observacion: '' };
   const ncsList = data?.notas_credito || [];
   const formasList = data?.formas_seniat || [];
+  const expedientesList = totalesTranscrito.expedientes || [];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%', background: '#F8FAFC' }}>
@@ -284,8 +288,8 @@ export const NotasCreditoView: React.FC = () => {
           </div>
         )}
 
-        {/* ── TARJETAS KPI RESUMEN ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+        {/* ── TARJETAS KPI RESUMEN (4 CARDS) ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
           {/* Card 1: Total Acreditado Físico (NC) */}
           <div style={{ background: '#ffffff', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -306,11 +310,44 @@ export const NotasCreditoView: React.FC = () => {
             </div>
           </div>
 
-          {/* Card 2: Monto Pendiente en SENIAT */}
+          {/* Card 2: Total Transcrito en Expediente (SIGECOF) */}
           <div style={{ background: '#ffffff', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.06em', color: '#64748B', textTransform: 'uppercase' }}>
-                SENIAT Pendiente (TXT)
+                Total Transcrito (Expediente)
+              </span>
+              <span style={{ 
+                fontSize: '11px', 
+                fontWeight: 800, 
+                padding: '2px 8px', 
+                borderRadius: '20px', 
+                background: '#F3E8FF', 
+                color: '#7E22CE' 
+              }}>
+                {totalesTranscrito.cantidad.toLocaleString('es-VE')} Planillas
+              </span>
+            </div>
+            <div style={{ fontSize: '22px', fontWeight: 800, color: '#7E22CE', fontFamily: "'IBM Plex Mono', monospace" }}>
+              Bs. {formatBs(totalesTranscrito.monto_total)}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', color: '#64748B', fontWeight: 600, borderTop: '1px solid #F1F5F9', paddingTop: '8px' }}>
+              <span>Efectivo: <strong style={{ color: '#0F172A' }}>Bs. {formatBs(totalesTranscrito.monto_efectivo)}</strong></span>
+              <span>
+                {totalesTranscrito.cant_lotes > 0 ? `${totalesTranscrito.cant_lotes} lotes` : ''}
+                {expedientesList.length > 0 && (
+                  <strong style={{ marginLeft: '6px', color: '#7E22CE' }}>
+                    (Exp #{expedientesList.map((e: any) => e.expediente).join(', ')})
+                  </strong>
+                )}
+              </span>
+            </div>
+          </div>
+
+          {/* Card 3: Universo Total del Día en SENIAT (TXT) */}
+          <div style={{ background: '#ffffff', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.06em', color: '#64748B', textTransform: 'uppercase' }}>
+                Total del Día (TXT SENIAT)
               </span>
               <span style={{ 
                 fontSize: '11px', 
@@ -320,15 +357,15 @@ export const NotasCreditoView: React.FC = () => {
                 background: totalesSeniat.planillas_duplicadas_count ? '#DCFCE7' : '#FEF3C7', 
                 color: totalesSeniat.planillas_duplicadas_count ? '#166534' : '#D97706' 
               }}>
-                {totalesSeniat.planillas_pendientes_unicas || totalesSeniat.planillas_pendientes} Planillas Únicas
+                {totalesSeniat.total_planillas.toLocaleString('es-VE')} Registros
               </span>
             </div>
             <div style={{ fontSize: '22px', fontWeight: 800, color: '#0F172A', fontFamily: "'IBM Plex Mono', monospace" }}>
-              Bs. {formatBs(totalesSeniat.monto_pendiente_unico || totalesSeniat.monto_pendiente)}
+              Bs. {formatBs(totalesSeniat.total_monto)}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '11px', color: '#64748B', fontWeight: 600, borderTop: '1px solid #F1F5F9', paddingTop: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span>Total TXT Bruto: <strong>{totalesSeniat.planillas_pendientes} plns</strong> (Bs. {formatBs(totalesSeniat.monto_pendiente)})</span>
+                <span>Pendiente: <strong>{totalesSeniat.planillas_pendientes_unicas || totalesSeniat.planillas_pendientes} plns</strong> (Bs. {formatBs(totalesSeniat.monto_pendiente_unico || totalesSeniat.monto_pendiente)})</span>
               </div>
               {totalesSeniat.planillas_duplicadas_count > 0 && (
                 <div style={{
@@ -366,10 +403,10 @@ export const NotasCreditoView: React.FC = () => {
             </div>
           </div>
 
-          {/* Card 3: Brecha Neta */}
+          {/* Card 4: Cuadre Expediente / Brecha */}
           <div style={{ 
-            background: brecha.alerta_discrepancia ? '#FFFBEB' : '#F0FDF4', 
-            border: `1px solid ${brecha.alerta_discrepancia ? '#FDE68A' : '#BBF7D0'}`, 
+            background: comparacion.estado_cuadre === 'DISCREPANCIA' ? '#FFFBEB' : (comparacion.estado_cuadre === 'EN_PROCESO' ? '#F8FAFC' : '#F0FDF4'), 
+            border: `1px solid ${comparacion.estado_cuadre === 'DISCREPANCIA' ? '#FDE68A' : (comparacion.estado_cuadre === 'EN_PROCESO' ? '#CBD5E1' : '#BBF7D0')}`, 
             borderRadius: '12px', 
             padding: '18px 20px', 
             display: 'flex', 
@@ -378,29 +415,152 @@ export const NotasCreditoView: React.FC = () => {
             boxShadow: '0 1px 3px rgba(0,0,0,0.05)' 
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.06em', color: brecha.alerta_discrepancia ? '#B45309' : '#15803D', textTransform: 'uppercase' }}>
-                Brecha Neta (NC vs Pendiente)
+              <span style={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.06em', color: comparacion.estado_cuadre === 'DISCREPANCIA' ? '#B45309' : (comparacion.estado_cuadre === 'EN_PROCESO' ? '#475569' : '#15803D'), textTransform: 'uppercase' }}>
+                Cuadre Día vs NCs
               </span>
               <span style={{ 
                 fontSize: '11px', 
                 fontWeight: 700, 
                 padding: '2px 8px', 
                 borderRadius: '20px', 
-                background: brecha.alerta_discrepancia ? '#FEF2F2' : '#DCFCE7', 
-                color: brecha.alerta_discrepancia ? '#DC2626' : '#16A34A',
+                background: comparacion.estado_cuadre === 'DISCREPANCIA' ? '#FEF2F2' : (comparacion.estado_cuadre === 'EN_PROCESO' ? '#EFF6FF' : '#DCFCE7'), 
+                color: comparacion.estado_cuadre === 'DISCREPANCIA' ? '#DC2626' : (comparacion.estado_cuadre === 'EN_PROCESO' ? '#2563EB' : '#16A34A'),
                 display: 'flex',
                 alignItems: 'center',
                 gap: '4px'
               }}>
-                {brecha.alerta_discrepancia ? <AlertTriangle size={12} /> : <CheckCircle2 size={12} />}
-                {brecha.alerta_discrepancia ? 'Desfase Detectado' : 'Cuadrado'}
+                {comparacion.estado_cuadre === 'DISCREPANCIA' ? <AlertTriangle size={12} /> : (comparacion.estado_cuadre === 'EN_PROCESO' ? <Layers size={12} /> : <CheckCircle2 size={12} />)}
+                {comparacion.estado_cuadre === 'DISCREPANCIA' ? 'Diferencia en Día' : (comparacion.estado_cuadre === 'EN_PROCESO' ? 'En Transcripción' : 'Cuadre Exacto')}
               </span>
             </div>
-            <div style={{ fontSize: '22px', fontWeight: 800, color: brecha.alerta_discrepancia ? '#DC2626' : '#15803D', fontFamily: "'IBM Plex Mono', monospace" }}>
-              Bs. {formatBs(Math.abs(brecha.diferencia_nc_vs_txt_pendiente))}
+            <div style={{ fontSize: '22px', fontWeight: 800, color: comparacion.estado_cuadre === 'DISCREPANCIA' ? '#DC2626' : (comparacion.estado_cuadre === 'EN_PROCESO' ? '#0F172A' : '#15803D'), fontFamily: "'IBM Plex Mono', monospace" }}>
+              Bs. {formatBs(Math.abs(comparacion.diferencia_nc_vs_total_dia))}
             </div>
-            <div style={{ fontSize: '11px', color: brecha.alerta_discrepancia ? '#B45309' : '#166534', fontWeight: 600, borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: '8px' }}>
-              {brecha.diferencia_nc_vs_txt_pendiente < 0 ? 'Faltante en NCs físicas vs TXT SENIAT' : brecha.diferencia_nc_vs_txt_pendiente > 0 ? 'Superávit en NCs físicas' : 'Conciliación exacta al céntimo'}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 600, color: '#64748B' }}>
+                <span>Avance Transcrito:</span>
+                <strong style={{ color: '#0F172A' }}>{comparacion.porcentaje_avance_transcrito}%</strong>
+              </div>
+              <div style={{ width: '100%', height: '6px', background: '#E2E8F0', borderRadius: '3px', overflow: 'hidden' }}>
+                <div style={{ width: `${Math.min(100, comparacion.porcentaje_avance_transcrito)}%`, height: '100%', background: '#2563EB', borderRadius: '3px', transition: 'width 0.3s ease' }} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── CUADRO COMPARATIVO: TOTAL EXPEDIENTE LUEGO DE TRANSCRIBIR VS NOTAS DE CRÉDITO ── */}
+        <div style={{
+          background: '#ffffff',
+          border: '1px solid #E2E8F0',
+          borderRadius: '12px',
+          padding: '20px 24px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '16px',
+          boxShadow: '0 2px 6px rgba(0,0,0,0.03)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #BFDBFE', color: '#2563EB' }}>
+                <ArrowRightLeft size={16} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '14.5px', fontWeight: 800, color: '#0F172A' }}>
+                  Comparativa de Cierre: Total Enterado en NCs vs Transcrito en Expediente vs Universo del Día
+                </h3>
+                <div style={{ fontSize: '12px', color: '#64748B', marginTop: '2px' }}>
+                  Monitoreo en tiempo real de cómo queda el expediente luego de transcribir todo frente a las Notas de Crédito
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '11.5px', fontWeight: 700, color: '#475569', background: '#F1F5F9', padding: '4px 10px', borderRadius: '6px' }}>
+                {fecha} · Banco {banco}
+              </span>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', background: '#F8FAFC', padding: '16px', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+            {/* 1. Enterado en NC */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <span style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.06em', color: '#64748B' }}>
+                1. TOTAL ENTERADO (NCS)
+              </span>
+              <span style={{ fontSize: '17px', fontWeight: 800, fontFamily: "'IBM Plex Mono', monospace", color: '#2563EB' }}>
+                Bs. {formatBs(totalesNc.monto_total)}
+              </span>
+              <span style={{ fontSize: '11px', color: '#64748B' }}>
+                {totalesNc.cantidad} Notas cargadas por el banco
+              </span>
+            </div>
+
+            {/* 2. Ya Transcrito */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <span style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.06em', color: '#64748B' }}>
+                2. YA TRANSCRITO (SIGECOF)
+              </span>
+              <span style={{ fontSize: '17px', fontWeight: 800, fontFamily: "'IBM Plex Mono', monospace", color: '#7E22CE' }}>
+                Bs. {formatBs(totalesTranscrito.monto_total)}
+              </span>
+              <span style={{ fontSize: '11px', color: '#64748B' }}>
+                {totalesTranscrito.cantidad.toLocaleString('es-VE')} plns ({comparacion.porcentaje_avance_transcrito}% del enterado)
+              </span>
+            </div>
+
+            {/* 3. Restante por Transcribir */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <span style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.06em', color: '#64748B' }}>
+                3. RESTA POR TRANSCRIBIR (TXT)
+              </span>
+              <span style={{ fontSize: '17px', fontWeight: 800, fontFamily: "'IBM Plex Mono', monospace", color: '#D97706' }}>
+                Bs. {formatBs(totalesSeniat.monto_pendiente_unico || totalesSeniat.monto_pendiente)}
+              </span>
+              <span style={{ fontSize: '11px', color: '#64748B' }}>
+                {totalesSeniat.planillas_pendientes_unicas || totalesSeniat.planillas_pendientes} plns únicas en archivo
+              </span>
+            </div>
+
+            {/* 4. Universo del Día */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <span style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.06em', color: '#64748B' }}>
+                4. TOTAL UNIVERSO DEL DÍA
+              </span>
+              <span style={{ fontSize: '17px', fontWeight: 800, fontFamily: "'IBM Plex Mono', monospace", color: '#0F172A' }}>
+                Bs. {formatBs(totalesSeniat.total_monto)}
+              </span>
+              <span style={{ fontSize: '11px', color: '#64748B' }}>
+                {totalesSeniat.total_planillas.toLocaleString('es-VE')} plns totales transmitidas
+              </span>
+            </div>
+          </div>
+
+          {/* Proyección de balance */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '12px 16px',
+            borderRadius: '8px',
+            background: Math.abs(comparacion.diferencia_nc_vs_total_dia) <= 0.01 ? '#F0FDF4' : '#FFFBEB',
+            border: `1px solid ${Math.abs(comparacion.diferencia_nc_vs_total_dia) <= 0.01 ? '#BBF7D0' : '#FDE68A'}`,
+            fontSize: '12.5px',
+            color: Math.abs(comparacion.diferencia_nc_vs_total_dia) <= 0.01 ? '#15803D' : '#92400E',
+            flexWrap: 'wrap',
+            gap: '8px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {Math.abs(comparacion.diferencia_nc_vs_total_dia) <= 0.01 ? (
+                <CheckCircle2 size={16} color="#16A34A" />
+              ) : (
+                <AlertTriangle size={16} color="#D97706" />
+              )}
+              <span>
+                <strong>Proyección al transcribir todo el expediente: </strong>
+                {Math.abs(comparacion.diferencia_nc_vs_total_dia) <= 0.01
+                  ? 'El monto total transcrito coincidirá EXACTAMENTE al céntimo con las Notas de Crédito cargadas por el banco.'
+                  : `El total del día presenta una discrepancia de Bs. ${formatBs(Math.abs(comparacion.diferencia_nc_vs_total_dia))} frente a las Notas de Crédito registradas. Faltan Bs. ${formatBs(Math.abs(comparacion.diferencia_nc_vs_transcrito))} por transcribir para cubrir las NCs cargadas.`
+                }
+              </span>
             </div>
           </div>
         </div>
@@ -450,6 +610,32 @@ export const NotasCreditoView: React.FC = () => {
             Notas de Crédito Físicas
             <span style={{ fontSize: '11px', padding: '2px 7px', borderRadius: '10px', background: activeTab === 'ncs' ? '#EFF6FF' : '#F1F5F9', color: activeTab === 'ncs' ? '#2563EB' : '#64748B' }}>
               {ncsList.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('expedientes')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '10px 18px',
+              fontSize: '13.5px',
+              fontWeight: 700,
+              color: activeTab === 'expedientes' ? '#7E22CE' : '#64748B',
+              borderBottom: activeTab === 'expedientes' ? '2px solid #7E22CE' : '2px solid transparent',
+              background: 'none',
+              borderTop: 'none',
+              borderLeft: 'none',
+              borderRight: 'none',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            <FolderCheck size={16} />
+            Expedientes y Lotes Transcritos
+            <span style={{ fontSize: '11px', padding: '2px 7px', borderRadius: '10px', background: activeTab === 'expedientes' ? '#F3E8FF' : '#F1F5F9', color: activeTab === 'expedientes' ? '#7E22CE' : '#64748B' }}>
+              {expedientesList.length}
             </span>
           </button>
 
@@ -763,6 +949,139 @@ export const NotasCreditoView: React.FC = () => {
                       <td style={{ padding: '14px 18px', textAlign: 'right', fontFamily: "'IBM Plex Mono', monospace" }}>
                         100.0%
                       </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ── TABLA 3: EXPEDIENTES Y LOTES TRANSCRITOS (PLANILLAS) ── */}
+        {activeTab === 'expedientes' && (
+          <div style={{ background: '#ffffff', border: '1px solid #E2E8F0', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: '#0F172A' }}>
+                  Expedientes y Lotes Transcritos en SIGECOF (ORG_LIQ.PLANILLA)
+                </h3>
+                <div style={{ fontSize: '12px', color: '#64748B', marginTop: '2px' }}>
+                  Consolidado de las {totalesTranscrito.cantidad.toLocaleString('es-VE')} planillas transcritas en {totalesTranscrito.cant_lotes} lotes para la fecha {fecha}
+                </div>
+              </div>
+              <span style={{ fontSize: '12px', fontWeight: 700, padding: '4px 10px', borderRadius: '6px', background: '#F3E8FF', color: '#7E22CE' }}>
+                Total Transcrito: Bs. {formatBs(totalesTranscrito.monto_total)}
+              </span>
+            </div>
+
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                <thead>
+                  <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0', color: '#475569', fontSize: '11px', fontWeight: 800, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                    <th style={{ padding: '12px 18px' }}>N° EXPEDIENTE</th>
+                    <th style={{ padding: '12px 18px', textAlign: 'center' }}>LOTES PROCESADOS</th>
+                    <th style={{ padding: '12px 18px', textAlign: 'right' }}>PLANILLAS TRANSCRITAS</th>
+                    <th style={{ padding: '12px 18px', textAlign: 'right' }}>MONTO EFECTIVO (BS)</th>
+                    <th style={{ padding: '12px 18px', textAlign: 'right' }}>MONTO TOTAL (BS)</th>
+                    <th style={{ padding: '12px 18px', textAlign: 'right' }}>COBERTURA VS NCS</th>
+                    <th style={{ padding: '12px 18px', textAlign: 'center' }}>ACCIONES</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {expedientesList.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} style={{ padding: '36px', textAlign: 'center', color: '#64748B' }}>
+                        No se registran planillas transcritas en ORG_LIQ.PLANILLA para los criterios seleccionados.
+                      </td>
+                    </tr>
+                  ) : (
+                    expedientesList.map((exp: any) => {
+                      const cobertura = totalesNc.monto_total > 0
+                        ? ((exp.monto_total / totalesNc.monto_total) * 100).toFixed(2)
+                        : '0.00';
+                      return (
+                        <tr key={exp.expediente} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                          <td style={{ padding: '14px 18px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 800, fontSize: '14px', color: '#1E5C99' }}>
+                                #{exp.expediente}
+                              </span>
+                              <span style={{ fontSize: '10.5px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: '#EFF6FF', color: '#2563EB' }}>
+                                Liquidación
+                              </span>
+                            </div>
+                          </td>
+                          <td style={{ padding: '14px 18px', textAlign: 'center' }}>
+                            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, background: '#F1F5F9', padding: '3px 8px', borderRadius: '6px', color: '#334155' }}>
+                              {exp.cant_lotes} lotes
+                            </span>
+                          </td>
+                          <td style={{ padding: '14px 18px', textAlign: 'right', fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700 }}>
+                            {Number(exp.cantidad).toLocaleString('es-VE')} plns
+                          </td>
+                          <td style={{ padding: '14px 18px', textAlign: 'right', fontFamily: "'IBM Plex Mono', monospace", color: '#0F172A' }}>
+                            Bs. {formatBs(exp.monto_efectivo)}
+                          </td>
+                          <td style={{ padding: '14px 18px', textAlign: 'right', fontFamily: "'IBM Plex Mono', monospace", fontWeight: 800, color: '#7E22CE', fontSize: '13.5px' }}>
+                            Bs. {formatBs(exp.monto_total)}
+                          </td>
+                          <td style={{ padding: '14px 18px', textAlign: 'right', fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700 }}>
+                            <span style={{ 
+                              padding: '2px 8px', 
+                              borderRadius: '6px', 
+                              background: '#F3E8FF',
+                              color: '#7E22CE'
+                            }}>
+                              {cobertura}%
+                            </span>
+                          </td>
+                          <td style={{ padding: '14px 18px', textAlign: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setExpediente(String(exp.expediente));
+                              }}
+                              style={{
+                                padding: '5px 12px',
+                                fontSize: '11.5px',
+                                fontWeight: 700,
+                                color: '#1E5C99',
+                                background: '#EDF4FB',
+                                border: '1px solid #BFDBFE',
+                                borderRadius: '6px',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              Filtrar Exp #{exp.expediente}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+                {expedientesList.length > 0 && (
+                  <tfoot>
+                    <tr style={{ background: '#F8FAFC', borderTop: '2px solid #E2E8F0', fontWeight: 800, fontSize: '13.5px' }}>
+                      <td style={{ padding: '14px 18px', color: '#1E293B' }}>
+                        TOTALES TRANSCRITOS ({expedientesList.length} EXPEDIENTE{expedientesList.length > 1 ? 'S' : ''})
+                      </td>
+                      <td style={{ padding: '14px 18px', textAlign: 'center', fontFamily: "'IBM Plex Mono', monospace" }}>
+                        {totalesTranscrito.cant_lotes} lotes
+                      </td>
+                      <td style={{ padding: '14px 18px', textAlign: 'right', fontFamily: "'IBM Plex Mono', monospace" }}>
+                        {totalesTranscrito.cantidad.toLocaleString('es-VE')} plns
+                      </td>
+                      <td style={{ padding: '14px 18px', textAlign: 'right', fontFamily: "'IBM Plex Mono', monospace" }}>
+                        Bs. {formatBs(totalesTranscrito.monto_efectivo)}
+                      </td>
+                      <td style={{ padding: '14px 18px', textAlign: 'right', fontFamily: "'IBM Plex Mono', monospace", color: '#7E22CE', fontSize: '14px' }}>
+                        Bs. {formatBs(totalesTranscrito.monto_total)}
+                      </td>
+                      <td style={{ padding: '14px 18px', textAlign: 'right', fontFamily: "'IBM Plex Mono', monospace" }}>
+                        {comparacion.porcentaje_avance_transcrito}%
+                      </td>
+                      <td></td>
                     </tr>
                   </tfoot>
                 )}

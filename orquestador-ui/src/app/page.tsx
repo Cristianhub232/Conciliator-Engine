@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Search, CheckCircle, AlertCircle, Layers, ServerCog, Filter, X, Loader2, Square, AlertTriangle, RefreshCw, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { Search, CheckCircle, AlertCircle, Layers, ServerCog, Filter, X, Loader2, Square, AlertTriangle, RefreshCw, CheckCircle2, ShieldAlert, FolderCheck } from 'lucide-react';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { SplashLoader } from '../components/SplashLoader';
 import { LoginView } from '../components/LoginView';
@@ -20,6 +20,7 @@ import { ResumenOperacionModal, ResumenOperacionData } from '../components/Resum
 import { AppVersionBadge } from '../components/AppVersionBadge';
 import { PlanillasAtributosNullModal } from '../components/PlanillasAtributosNullModal';
 import { DuplicadosTxtModal } from '../components/DuplicadosTxtModal';
+import { CerrarExpedienteModal } from '../components/CerrarExpedienteModal';
 import { BancoSelector } from '../components/BancoSelector';
 import { getBancoLabel } from '../services/bancosCatalog';
 
@@ -45,6 +46,7 @@ function OrquestadorPageInner() {
   const [isAtributosNullModalOpen, setIsAtributosNullModalOpen] = useState(false);
   const [duplicadosTxtData, setDuplicadosTxtData] = useState<any>(null);
   const [isDuplicadosModalOpen, setIsDuplicadosModalOpen] = useState(false);
+  const [isCerrarExpedienteModalOpen, setIsCerrarExpedienteModalOpen] = useState(false);
 
   // States
   const [mappingStates, setMappingStates] = useState<Record<number, any>>({});
@@ -1422,6 +1424,28 @@ function OrquestadorPageInner() {
                   <ServerCog size={14} />
                   {isMappingAll ? 'Mapeando…' : 'Mapear Todas'}
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsCerrarExpedienteModalOpen(true)}
+                  disabled={isMassAuthorizing || isMappingAll}
+                  className="btn btn-sm"
+                  style={{
+                    background: 'linear-gradient(135deg, #1e40af 0%, #2563eb 100%)',
+                    color: '#ffffff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontWeight: 700,
+                    boxShadow: '0 2px 6px rgba(37, 99, 235, 0.3)',
+                    border: 'none',
+                    cursor: 'pointer'
+                  }}
+                  title="Cerrar expediente y pasar a siguiente fase (Validación - Tarea 2062)"
+                >
+                  <FolderCheck size={14} />
+                  Cerrar Expediente
+                </button>
               </div>
             </div>
 
@@ -1627,6 +1651,22 @@ function OrquestadorPageInner() {
         totalUnico={planillas.length}
         onDepuracionSuccess={(result) => {
           setAuditFeedback({ forma: 'TXT_DUP', message: `✅ ${result.mensaje}` });
+          handleSearch({ preventDefault: () => {} });
+        }}
+      />
+
+      {/* Modal de Cierre de Expediente y Reasignación a Validación */}
+      <CerrarExpedienteModal
+        isOpen={isCerrarExpedienteModalOpen}
+        onClose={() => setIsCerrarExpedienteModalOpen(false)}
+        expediente={selectedExp || expedientesUnicos[0] || (searchLote.trim() ? Number(searchLote.trim()) : null) || (planillas[0]?.EXPEDIENTE) || null}
+        anho={parseInt(fecha.split('-')[0], 10) || 2024}
+        fecha={fecha}
+        banco={banco}
+        totalPlanillasConciliadas={planillasFiltradas.filter(p => successStates[p.NRO_PLANILLA_FALTANTE]).length || planillasFiltradas.length}
+        montoTotalConciliado={totalMonto}
+        onCierreSuccess={(result) => {
+          setAuditFeedback({ forma: 'EXP_CIERRE', message: `✅ ${result.mensaje}` });
           handleSearch({ preventDefault: () => {} });
         }}
       />

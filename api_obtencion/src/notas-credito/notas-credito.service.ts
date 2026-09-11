@@ -40,6 +40,35 @@ export interface DuplicadoTxtItem {
   monto_excedente: number;
 }
 
+export interface ExpedienteTranscritoItem {
+  expediente: number;
+  cantidad: number;
+  monto_total: number;
+  monto_efectivo: number;
+  cant_lotes: number;
+}
+
+export interface TotalesTranscrito {
+  cantidad: number;
+  monto_total: number;
+  monto_efectivo: number;
+  monto_cheque_otros: number;
+  cant_lotes: number;
+  expedientes: ExpedienteTranscritoItem[];
+}
+
+export interface ComparacionGeneral {
+  monto_nc: number;
+  monto_transcrito: number;
+  monto_txt_total: number;
+  monto_txt_pendiente: number;
+  diferencia_nc_vs_transcrito: number;
+  diferencia_nc_vs_total_dia: number;
+  diferencia_proyectada_cierre: number;
+  porcentaje_avance_transcrito: number;
+  estado_cuadre: 'CUADRADO' | 'EN_PROCESO' | 'DISCREPANCIA';
+}
+
 export interface NotasCreditoResponse {
   fecha: string;
   banco: string | null;
@@ -64,6 +93,8 @@ export interface NotasCreditoResponse {
     monto_duplicadas: number;
     duplicados: DuplicadoTxtItem[];
   };
+  totales_transcrito: TotalesTranscrito;
+  comparacion_general: ComparacionGeneral;
   brecha: {
     diferencia_nc_vs_txt_pendiente: number;
     diferencia_nc_vs_txt_total: number;
@@ -123,7 +154,7 @@ export class NotasCreditoService {
       }
 
       if (expediente && expediente.trim() !== '') {
-        ncsSql += ` AND EXPEDIENTE = :expediente`;
+        ncsSql += ` AND (EXPEDIENTE = :expediente OR (WORKITEM IS NOT NULL AND WORKITEM IN (SELECT WORKITEM FROM ORG_LIQ.PLANILLA WHERE FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD') AND EXPEDIENTE = :expediente AND WORKITEM IS NOT NULL)))`;
         ncsBinds.expediente = Number(expediente);
       }
 
@@ -284,16 +315,113 @@ export class NotasCreditoService {
         monto_pendiente: Number(f.MONTO_PENDIENTE || 0),
       }));
 
-      // 4. Diagnóstico y Análisis de Brecha (frente al monto pendiente único)
-      const difPendiente = totalesNc.monto_total - totalesSeniat.monto_pendiente_unico;
-      const difTotal = totalesNc.monto_total - totalesSeniat.total_monto;
-      const tieneBrecha = Math.abs(difPendiente) > 0.01;
+      // 4. Consulta de lo Transcrito en ORG_LIQ.PLANILLA (Expediente / Lotes)
+      let planSql = `
+        SELECT 
+          COUNT(*) AS CANTIDAD_TRANSCRITA,
+          NVL(SUM(NVL(MONTO, 0)), 0) AS MONTO_TOTAL_TRANSCRITO,
+          NVL(SUM(NVL(MONTO_EFECTIVO, 0)), 0) AS MONTO_EFECTIVO_TRANSCRITO,
+          NVL(SUM(NVL(MONTO, 0) - NVL(MONTO_EFECTIVO, 0)), 0) AS MONTO_CHEQUE_OTROS_TRANSCRITO,
+          COUNT(DISTINCT EXPEDIENTE) AS CANT_EXPEDIENTES,
+          COUNT(DISTINCT LOTE_SEQ) AS CANT_LOTES
+        FROM ORG_LIQ.PLANILLA
+        WHERE FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD')
+      `;
+      const planBinds: any = { fecha };
+
+      if (banco && banco !== 'TODOS' && banco.trim() !== '') {
+        planSql += ` AND INFN_CODIGO = :banco`;
+        planBinds.banco = banco.trim();
+      }
+
+      if (expediente && expediente.trim() !== '') {
+        planSql += ` AND (EXPEDIENTE = :expediente OR (WORKITEM IS NOT NULL AND WORKITEM IN (SELECT WORKITEM FROM ORG_LIQ.NOTA_CREDITO_PLN WHERE FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD') AND EXPEDIENTE = :expediente AND WORKITEM IS NOT NULL)))`;
+        planBinds.expediente = Number(expediente);
+      }
+
+      const rawPlan = await this.db.executeQuery<any>(planSql, planBinds);
+      const planRow = rawPlan[0] || {};
+
+      // Desglose por expediente en PLANILLA
+      let planExpSql = `
+        SELECT 
+          EXPEDIENTE,
+          COUNT(*) AS CANTIDAD,
+          NVL(SUM(NVL(MONTO, 0)), 0) AS MONTO_TOTAL,
+          NVL(SUM(NVL(MONTO_EFECTIVO, 0)), 0) AS MONTO_EFECTIVO,
+          COUNT(DISTINCT LOTE_SEQ) AS CANT_LOTES
+        FROM ORG_LIQ.PLANILLA
+        WHERE FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD')
+      `;
+      const planExpBinds: any = { fecha };
+      if (banco && banco !== 'TODOS' && banco.trim() !== '') {
+        planExpSql += ` AND INFN_CODIGO = :banco`;
+        planExpBinds.banco = banco.trim();
+      }
+      if (expediente && expediente.trim() !== '') {
+        planExpSql += ` AND (EXPEDIENTE = :expediente OR (WORKITEM IS NOT NULL AND WORKITEM IN (SELECT WORKITEM FROM ORG_LIQ.NOTA_CREDITO_PLN WHERE FECHA_RECAUDACION = TO_DATE(:fecha, 'YYYY-MM-DD') AND EXPEDIENTE = :expediente AND WORKITEM IS NOT NULL)))`;
+        planExpBinds.expediente = Number(expediente);
+      }
+      planExpSql += ` GROUP BY EXPEDIENTE ORDER BY EXPEDIENTE ASC`;
+
+      const rawPlanExps = await this.db.executeQuery<any>(planExpSql, planExpBinds);
+      const expedientesTranscritos: ExpedienteTranscritoItem[] = (rawPlanExps || []).map((e: any) => ({
+        expediente: Number(e.EXPEDIENTE || 0),
+        cantidad: Number(e.CANTIDAD || 0),
+        monto_total: Number(Number(e.MONTO_TOTAL || 0).toFixed(2)),
+        monto_efectivo: Number(Number(e.MONTO_EFECTIVO || 0).toFixed(2)),
+        cant_lotes: Number(e.CANT_LOTES || 0),
+      }));
+
+      const totalesTranscrito: TotalesTranscrito = {
+        cantidad: Number(planRow.CANTIDAD_TRANSCRITA || 0),
+        monto_total: Number(Number(planRow.MONTO_TOTAL_TRANSCRITO || 0).toFixed(2)),
+        monto_efectivo: Number(Number(planRow.MONTO_EFECTIVO_TRANSCRITO || 0).toFixed(2)),
+        monto_cheque_otros: Number(Number(planRow.MONTO_CHEQUE_OTROS_TRANSCRITO || 0).toFixed(2)),
+        cant_lotes: Number(planRow.CANT_LOTES || 0),
+        expedientes: expedientesTranscritos,
+      };
+
+      // 5. Diagnóstico, Cuadre General y Análisis de Brecha
+      const montoNc = Number(totalesNc.monto_total.toFixed(2));
+      const montoTranscrito = totalesTranscrito.monto_total;
+      const montoTxtTotal = Number(totalesSeniat.total_monto.toFixed(2));
+      const montoTxtPendiente = totalesSeniat.monto_pendiente_unico;
+
+      const difNcVsTranscrito = Number((montoNc - montoTranscrito).toFixed(2));
+      const difNcVsTotalDia = Number((montoNc - montoTxtTotal).toFixed(2));
+      const difProyectada = Number((montoNc - (montoTranscrito + montoTxtPendiente)).toFixed(2));
+      const difPendiente = Number((montoNc - montoTxtPendiente).toFixed(2));
+      const tieneBrecha = Math.abs(difNcVsTotalDia) > 0.01;
+
+      const avanceTranscrito = montoNc > 0
+        ? Number(((montoTranscrito / montoNc) * 100).toFixed(2))
+        : (montoTxtTotal > 0 ? Number(((montoTranscrito / montoTxtTotal) * 100).toFixed(2)) : 0);
+
+      let estadoCuadre: 'CUADRADO' | 'EN_PROCESO' | 'DISCREPANCIA' = 'CUADRADO';
+      if (Math.abs(difNcVsTotalDia) > 0.01) {
+        estadoCuadre = 'DISCREPANCIA';
+      } else if (Math.abs(difNcVsTranscrito) > 0.01) {
+        estadoCuadre = 'EN_PROCESO';
+      }
+
+      const comparacionGeneral: ComparacionGeneral = {
+        monto_nc: montoNc,
+        monto_transcrito: montoTranscrito,
+        monto_txt_total: montoTxtTotal,
+        monto_txt_pendiente: montoTxtPendiente,
+        diferencia_nc_vs_transcrito: difNcVsTranscrito,
+        diferencia_nc_vs_total_dia: difNcVsTotalDia,
+        diferencia_proyectada_cierre: difProyectada,
+        porcentaje_avance_transcrito: avanceTranscrito,
+        estado_cuadre: estadoCuadre,
+      };
 
       let observacion = '';
       if (planillasDuplicadasCount > 0) {
         observacion = `Aviso de Duplicados en TXT: Se detectaron ${planillasDuplicadasCount} registros duplicados idénticos en el archivo transmitido (Bs. ${montoDuplicadas.toLocaleString('es-VE', { minimumFractionDigits: 2 })}). El total bruto de ${totalPendientesBrutas.toLocaleString('es-VE')} registros consolida ${planillasPendientesUnicas.toLocaleString('es-VE')} planillas únicas listas para conciliar por Bs. ${montoPendienteUnico.toLocaleString('es-VE', { minimumFractionDigits: 2 })}.`;
       } else if (!tieneBrecha && totalesNc.cantidad > 0) {
-        observacion = 'Conciliación perfecta: El monto en Notas de Crédito coincide exactamente con el monto pendiente en TXT SENIAT.';
+        observacion = `Conciliación perfecta del día: Las Notas de Crédito emitidas (Bs. ${montoNc.toLocaleString('es-VE', { minimumFractionDigits: 2 })}) cubren exactamente el 100% del archivo bancario. Actualmente se han transcrito Bs. ${montoTranscrito.toLocaleString('es-VE', { minimumFractionDigits: 2 })} (${avanceTranscrito}%), restando Bs. ${montoTxtPendiente.toLocaleString('es-VE', { minimumFractionDigits: 2 })} en el expediente.`;
       } else if (totalesNc.cantidad === 0 && totalesSeniat.total_planillas > 0) {
         observacion = 'No se registran Notas de Crédito bancarias para los criterios seleccionados en esta fecha.';
       } else {
@@ -302,7 +430,7 @@ export class NotasCreditoService {
         if (formaAduana && formaAduana.monto_pendiente > 0) {
           observacion = `Existe presencia de Forma Aduanera 99044 por Bs. ${formaAduana.monto_pendiente.toLocaleString('es-VE', { minimumFractionDigits: 2 })}, la cual habitualmente ingresa por expedientes o cuentas especiales de aduana.`;
         } else {
-          observacion = `Discrepancia neta de Bs. ${Math.abs(difPendiente).toLocaleString('es-VE', { minimumFractionDigits: 2 })} entre lo enterado en Notas de Crédito y lo pendiente en TXT SENIAT.`;
+          observacion = `Discrepancia de Bs. ${Math.abs(difNcVsTotalDia).toLocaleString('es-VE', { minimumFractionDigits: 2 })} entre lo enterado en Notas de Crédito (Bs. ${montoNc.toLocaleString('es-VE', { minimumFractionDigits: 2 })}) y el archivo total transmitido del día (Bs. ${montoTxtTotal.toLocaleString('es-VE', { minimumFractionDigits: 2 })}). Transcrito actual: Bs. ${montoTranscrito.toLocaleString('es-VE', { minimumFractionDigits: 2 })}.`;
         }
       }
 
@@ -330,9 +458,11 @@ export class NotasCreditoService {
           monto_duplicadas: totalesSeniat.monto_duplicadas,
           duplicados: totalesSeniat.duplicados,
         },
+        totales_transcrito: totalesTranscrito,
+        comparacion_general: comparacionGeneral,
         brecha: {
           diferencia_nc_vs_txt_pendiente: Number(difPendiente.toFixed(2)),
-          diferencia_nc_vs_txt_total: Number(difTotal.toFixed(2)),
+          diferencia_nc_vs_txt_total: Number(difNcVsTotalDia.toFixed(2)),
           alerta_discrepancia: tieneBrecha,
           observacion,
         },
