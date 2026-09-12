@@ -1,11 +1,17 @@
 import { Controller, Get, Query, Param, HttpException, HttpStatus } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiParam } from '@nestjs/swagger';
 import { AuditoriaService } from './auditoria.service';
 
+@ApiTags('auditoria')
 @Controller('api/auditoria')
 export class AuditoriaController {
   constructor(private readonly auditoriaService: AuditoriaService) {}
 
   @Get('transcriptor')
+  @ApiOperation({ summary: 'Obtener auditoría de productividad de un transcriptor/operador' })
+  @ApiQuery({ name: 'usuario', required: true, example: 'MAIRA_0018', description: 'Nombre de usuario del transcriptor' })
+  @ApiQuery({ name: 'anho', required: false, example: 2024, description: 'Año fiscal' })
+  @ApiResponse({ status: 200, description: 'Métricas de transcripción y planillas conciliadas' })
   async getTranscriptor(
     @Query('usuario') usuario: string,
     @Query('anho') anhoStr?: string,
@@ -21,6 +27,10 @@ export class AuditoriaController {
   }
 
   @Get('expediente/:id')
+  @ApiOperation({ summary: 'Obtener trazabilidad e historial completo de un expediente' })
+  @ApiParam({ name: 'id', description: 'ID del expediente', example: '7638' })
+  @ApiQuery({ name: 'anho', required: false, example: 2024, description: 'Año fiscal' })
+  @ApiResponse({ status: 200, description: 'Trazabilidad histórica en WFE_HISTORIA y PostgreSQL' })
   async getExpediente(
     @Param('id') expedienteId: string,
     @Query('anho') anhoStr?: string,
@@ -36,6 +46,10 @@ export class AuditoriaController {
   }
 
   @Get('lote/:id')
+  @ApiOperation({ summary: 'Obtener auditoría detallada de un lote presupuestario' })
+  @ApiParam({ name: 'id', description: 'Secuencia del lote (lote_seq)', example: '14' })
+  @ApiQuery({ name: 'anho', required: false, example: 2024, description: 'Año fiscal' })
+  @ApiResponse({ status: 200, description: 'Detalle presupuestario del lote' })
   async getLote(
     @Param('id') loteSeqStr: string,
     @Query('anho') anhoStr?: string,
@@ -52,6 +66,9 @@ export class AuditoriaController {
   }
 
   @Get('eventos')
+  @ApiOperation({ summary: 'Consultar logs y eventos de auditoría institucional' })
+  @ApiQuery({ name: 'limit', required: false, example: 100, description: 'Número máximo de eventos a retornar' })
+  @ApiResponse({ status: 200, description: 'Lista de eventos JSON de auditoría' })
   async getEventos(@Query('limit') limitStr?: string) {
     const limit = limitStr ? parseInt(limitStr, 10) : 100;
     return await this.auditoriaService.getEventosAuditoriaJson(limit);

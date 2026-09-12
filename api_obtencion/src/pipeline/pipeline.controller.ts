@@ -1,11 +1,32 @@
 import { Controller, Post, Get, Body, BadRequestException } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PipelineService } from './pipeline.service';
 
+export class ExecutarPipelineDto {
+  @ApiProperty({ description: 'Código de banco (3 o 4 dígitos)', example: '007' })
+  banco!: string;
+
+  @ApiProperty({ description: 'Fecha de inicio del rango (YYYY-MM-DD)', example: '2024-05-01' })
+  fechaInicio!: string;
+
+  @ApiPropertyOptional({ description: 'Fecha de fin del rango (YYYY-MM-DD)', example: '2024-05-31' })
+  fechaFin?: string;
+
+  @ApiPropertyOptional({ description: 'Identificador del operador que ejecuta', example: 'MAIRA_0018' })
+  operador?: string;
+
+  @ApiPropertyOptional({ description: 'Chat ID de Telegram para recibir notificaciones en tiempo real', example: 123456789 })
+  chatId?: number;
+}
+
+@ApiTags('pipeline')
 @Controller('api/pipeline')
 export class PipelineController {
   constructor(private readonly pipelineService: PipelineService) {}
 
   @Get('estado')
+  @ApiOperation({ summary: 'Obtener el estado del pipeline de conciliación en ejecución' })
+  @ApiResponse({ status: 200, description: 'Estado del motor de conciliación (reposo o ejecutando)' })
   getEstado() {
     const isRunning = this.pipelineService.getIsRunning();
     return {
@@ -17,6 +38,8 @@ export class PipelineController {
   }
 
   @Post('detener')
+  @ApiOperation({ summary: 'Solicitar detención de emergencia del proceso de conciliación' })
+  @ApiResponse({ status: 200, description: 'Solicitud de detención enviada' })
   detener() {
     this.pipelineService.requestStop();
     return {
@@ -25,8 +48,11 @@ export class PipelineController {
   }
 
   @Post('conciliar')
+  @ApiOperation({ summary: 'Iniciar conciliación masiva secuencial por banco y rango de fechas' })
+  @ApiBody({ type: ExecutarPipelineDto })
+  @ApiResponse({ status: 200, description: 'Conciliación masiva iniciada en segundo plano' })
   async conciliar(
-    @Body() body: { banco: string; fechaInicio: string; fechaFin?: string; operador?: string; chatId?: number }
+    @Body() body: ExecutarPipelineDto
   ) {
     if (!body.banco || !body.fechaInicio) {
       throw new BadRequestException('El banco y la fechaInicio son obligatorios');
@@ -39,14 +65,12 @@ export class PipelineController {
       };
     }
 
-    // Iniciar procesamiento secuencial
     const promesa = this.pipelineService.ejecutarLoteSecuencial({
       banco: body.banco,
       fechaInicio: body.fechaInicio,
       fechaFin: body.fechaFin || body.fechaInicio,
       operador: body.operador || 'HTTP_API',
       onMensaje: async (msg, tipo) => {
-        // Si se suministró chatId, enviar notificación vía Telegram sendMessage
         if (body.chatId && process.env.TELEGRAM_BOT_TOKEN) {
           try {
             await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
