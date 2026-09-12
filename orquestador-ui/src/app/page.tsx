@@ -94,6 +94,28 @@ function OrquestadorPageInner() {
     loadFormasAuditoria();
   }, []);
 
+  // Sincronizar contexto del Agente IA Flotante (ICHI) según el módulo activo
+  useEffect(() => {
+    const tabLabels: Record<NavTab, string> = {
+      'conciliacion': `Conciliación Masiva · Banco ${banco} (${fecha})`,
+      'transcriptores': 'Auditoría de Transcriptores y Operadores',
+      'expedientes': 'Explorador de Expedientes y Lotes',
+      'auditoria': 'Bitácora y Trazabilidad de Auditoría',
+      'catalogo_formas': 'Catálogo Centralizado de Formas e Impuestos',
+      'depuracion': 'Depuración Manual Autorizada (motor_app)',
+      'notas_credito': 'Auditoría de Notas de Crédito Bancarias',
+      'usuarios': 'Gestión de Usuarios y Analistas',
+      'bot-config': 'Configuración de Telegram Bot e IA',
+      'configuracion': 'Configuración y Pool de Conexiones DB',
+    };
+    const ctx = tabLabels[activeTab] || `Módulo: ${activeTab}`;
+    if (typeof window !== 'undefined' && window.setIchiContext) {
+      window.setIchiContext(ctx);
+    }
+  }, [activeTab, banco, fecha]);
+
+
+
   const handleCertificarFormaRapido = async (codForma: string) => {
     setAuditingForma(codForma);
     try {
