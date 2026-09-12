@@ -8,16 +8,17 @@ echo "===================================================="
 echo ""
 echo "1️⃣ Compilando Backend API (NestJS)..."
 cd api_obtencion
-npm install
+npm install --legacy-peer-deps
 npm run build
 cd ..
 
 echo ""
 echo "2️⃣ Compilando Frontend UI (Next.js)..."
 cd orquestador-ui
-npm install
+npm install --legacy-peer-deps
 npm run build
 cd ..
+
 
 echo ""
 echo "✅ COMPILACIÓN FINALIZADA CON ÉXITO."
