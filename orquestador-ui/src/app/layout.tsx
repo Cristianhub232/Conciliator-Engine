@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { IchiAgentWidget } from "../components/IchiAgentWidget";
+
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -25,11 +25,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       suppressHydrationWarning
     >
-      <body suppressHydrationWarning>
-        {children}
-        <IchiAgentWidget />
-      </body>
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }
+
 

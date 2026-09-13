@@ -23,6 +23,8 @@ import { DuplicadosTxtModal } from '../components/DuplicadosTxtModal';
 import { CerrarExpedienteModal } from '../components/CerrarExpedienteModal';
 import { BancoSelector } from '../components/BancoSelector';
 import { getBancoLabel } from '../services/bancosCatalog';
+import { IchiAgentWidget } from '../components/IchiAgentWidget';
+
 
 function OrquestadorPageInner() {
   const { isAuthenticated, loading: authLoading, usuario } = useAuth();
@@ -1693,9 +1695,13 @@ function OrquestadorPageInner() {
         }}
       />
 
+      {/* Agente de Inteligencia Artificial Flotante ICHI (Solo visible tras el Login) */}
+      <IchiAgentWidget />
+
     </div>
   );
 }
+
 
 export default function OrquestadorPage() {
   return (

@@ -15,14 +15,51 @@ interface IchiAgentWidgetProps {
 
 export const IchiAgentWidget: React.FC<IchiAgentWidgetProps> = ({
   initialContext = 'Orquestador SIRONT · Motor Financiero ONT',
-  modelName = 'ICHI AI Assistant · ONT',
+  modelName,
 }) => {
   const agentRef = useRef<any>(null);
   const [scriptLoaded, setScriptLoaded] = useState(false);
   const [context, setContext] = useState(initialContext);
+  const [isEnabled, setIsEnabled] = useState<boolean>(true);
+  const [currentModel, setCurrentModel] = useState<string>(modelName || 'ICHI · DeepSeek V3 / ONT');
+  const [greeting, setGreeting] = useState<string>('¡Hola! Soy ICHI, tu asistente de IA para el orquestador ONT. Tengo el contexto de esta pantalla cargado. ¿Qué necesitas consultar?');
+
+  // Comprobar estado de activación y configuración desde localStorage
+  const syncIchiSettings = () => {
+    if (typeof window === 'undefined') return;
+    try {
+      const savedEnabled = localStorage.getItem('ichi_enabled');
+      // Si no existe, por defecto está activo
+      setIsEnabled(savedEnabled !== 'false');
+
+      const savedModel = localStorage.getItem('ichi_model_name');
+      if (savedModel) {
+        setCurrentModel(savedModel);
+      } else if (modelName) {
+        setCurrentModel(modelName);
+      }
+
+      const savedGreeting = localStorage.getItem('ichi_greeting');
+      if (savedGreeting) {
+        setGreeting(savedGreeting);
+      }
+    } catch (e) {
+      console.warn('Error leyendo configuración de Ichi:', e);
+    }
+  };
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+
+    syncIchiSettings();
+
+    // Escuchar cambios de activación o configuración en tiempo real
+    const handleStatusChange = () => {
+      syncIchiSettings();
+    };
+
+    window.addEventListener('ichi_status_changed', handleStatusChange);
+    window.addEventListener('storage', handleStatusChange);
 
     // Helper global para que cualquier vista o modal pueda actualizar el contexto de ICHI
     window.setIchiContext = (newContext: string) => {
@@ -34,26 +71,31 @@ export const IchiAgentWidget: React.FC<IchiAgentWidgetProps> = ({
 
     if (customElements.get('ichi-agent')) {
       setScriptLoaded(true);
-      return;
+    } else {
+      const script = document.createElement('script');
+      script.src = '/vendor/ichi-agent.js';
+      script.async = true;
+      script.onload = () => {
+        setScriptLoaded(true);
+      };
+      document.body.appendChild(script);
     }
 
-    const script = document.createElement('script');
-    script.src = '/vendor/ichi-agent.js';
-    script.async = true;
-    script.onload = () => {
-      setScriptLoaded(true);
-    };
-    document.body.appendChild(script);
-
     return () => {
+      window.removeEventListener('ichi_status_changed', handleStatusChange);
+      window.removeEventListener('storage', handleStatusChange);
       delete window.setIchiContext;
     };
-  }, []);
+  }, [modelName]);
 
   useEffect(() => {
-    if (!scriptLoaded || !agentRef.current) return;
+    if (!scriptLoaded || !agentRef.current || !isEnabled) return;
 
     const agent = agentRef.current;
+
+    // Actualizar atributos reactivos
+    agent.setAttribute('context', context);
+    agent.setAttribute('model', currentModel);
 
     // Sugerencias rápidas adaptadas a la operación de la ONT
     agent.suggestions = [
@@ -122,7 +164,12 @@ export const IchiAgentWidget: React.FC<IchiAgentWidgetProps> = ({
         note: `Contexto activo: ${agent.getAttribute('context') || 'General'}`,
       };
     };
-  }, [scriptLoaded]);
+  }, [scriptLoaded, isEnabled, context, currentModel]);
+
+  // Si ICHI está desactivado o el script aún no carga, no renderizamos el widget flotante
+  if (!isEnabled) {
+    return null;
+  }
 
   return (
     <div id="ichi-agent-container" style={{ position: 'relative', zIndex: 2147483000 }}>
@@ -130,9 +177,8 @@ export const IchiAgentWidget: React.FC<IchiAgentWidgetProps> = ({
         React.createElement('ichi-agent', {
           ref: agentRef,
           context: context,
-          model: modelName,
-          greeting:
-            '¡Hola! Soy ICHI, tu asistente de IA para el orquestador ONT. Tengo el contexto de esta pantalla cargado. ¿Qué necesitas consultar?',
+          model: currentModel,
+          greeting: greeting,
         })}
     </div>
   );
