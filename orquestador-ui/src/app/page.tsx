@@ -24,6 +24,7 @@ import { CerrarExpedienteModal } from '../components/CerrarExpedienteModal';
 import { BancoSelector } from '../components/BancoSelector';
 import { getBancoLabel } from '../services/bancosCatalog';
 import { IchiAgentWidget } from '../components/IchiAgentWidget';
+import { ReasignacionExpedientesView } from '../components/ReasignacionExpedientesView';
 
 
 function OrquestadorPageInner() {
@@ -100,6 +101,7 @@ function OrquestadorPageInner() {
   useEffect(() => {
     const tabLabels: Record<NavTab, string> = {
       'conciliacion': `Conciliación Masiva · Banco ${banco} (${fecha})`,
+      'reasignacion': 'Reasignación de Expedientes (ABIERTA ➔ PENDIENTE)',
       'transcriptores': 'Auditoría de Transcriptores y Operadores',
       'expedientes': 'Explorador de Expedientes y Lotes',
       'auditoria': 'Bitácora y Trazabilidad de Auditoría',
@@ -561,6 +563,7 @@ function OrquestadorPageInner() {
 
       {/* Área Principal de Contenido */}
       <main className="main-viewport">
+        {activeTab === 'reasignacion' && <ReasignacionExpedientesView />}
         {activeTab === 'transcriptores' && <TranscriptoresView />}
         {activeTab === 'expedientes' && <ExpedientesExplorerView />}
         {activeTab === 'auditoria' && <AuditoriaLogsView />}

@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { PostgresService } from '../database/postgres.service';
+import { ConsultarExpedientesReasignacionDto, EjecutarReasignacionDto } from './dto/reasignacion.dto';
 import * as oracledb from 'oracledb';
 import * as bcrypt from 'bcryptjs';
 import * as fs from 'fs/promises';
@@ -1871,6 +1872,391 @@ export class PlanillasService {
       analista_nombre: nombreAnalista,
       lotes_validados: lotes.length,
       total_planillas: totalPlanillas,
+    };
+  }
+
+  /**
+   * Consulta expedientes con planillas pendientes por conciliar para balanceo/reasignación de carga.
+   * Filtra por estado de WorkItem (por defecto ABIERTA) y usuario asignado (por defecto GILLIAMS_0028).
+   */
+  async consultarExpedientesPendientesReasignacion(dto: ConsultarExpedientesReasignacionDto) {
+    const anho = dto.anho ? Number(dto.anho) : 2024;
+    const limit = dto.limit ? Math.min(Math.max(Number(dto.limit), 1), 1000) : 100;
+    const usuarioOrigen = dto.usuario_origen !== undefined ? dto.usuario_origen.trim() : 'GILLIAMS_0028';
+    const estadoWi = dto.estado_wi ? dto.estado_wi.trim().toUpperCase() : 'ABIERTA';
+    const banco = dto.banco ? dto.banco.trim() : '';
+    const search = dto.search ? dto.search.trim() : '';
+
+    const binds: any = { anho, limit };
+    let whereClauses = `WHERE W.ORGA_ID = '93' AND W.WFTA_TAREA_ID = 2061 AND W.ANHO = :anho`;
+
+    if (usuarioOrigen && usuarioOrigen !== 'TODOS') {
+      whereClauses += ` AND UPPER(W.WFUS_USERS_ID) = UPPER(:usuarioOrigen)`;
+      binds.usuarioOrigen = usuarioOrigen;
+    }
+
+    if (estadoWi && estadoWi !== 'TODOS') {
+      whereClauses += ` AND UPPER(W.WI_ESTADO) = UPPER(:estadoWi)`;
+      binds.estadoWi = estadoWi;
+    } else {
+      whereClauses += ` AND W.WI_ESTADO IN ('ABIERTA', 'PENDIENTE')`;
+    }
+
+    if (banco && banco !== 'TODOS') {
+      whereClauses += ` AND L.INFN_CODIGO = :banco`;
+      binds.banco = banco;
+    }
+
+    if (dto.mes && dto.mes !== 'TODOS') {
+      const mesPadded = String(dto.mes).trim().padStart(2, '0');
+      whereClauses += ` AND TO_CHAR(L.FECHA_RECAUDACION, 'MM') = :mes`;
+      binds.mes = mesPadded;
+    }
+
+    if (search) {
+      whereClauses += ` AND TO_CHAR(W.WFEX_EXP_ID) LIKE :searchExp`;
+      binds.searchExp = `%${search}%`;
+    }
+
+    const query = `
+      SELECT * FROM (
+        SELECT 
+          W.WFEX_EXP_ID AS EXPEDIENTE,
+          W.ANHO,
+          W.WORKITEM,
+          W.WFUS_USERS_ID AS USUARIO_ASIGNADO,
+          W.WI_ESTADO AS ESTADO_WI,
+          W.WI_NOMBRE,
+          W.WI_DESCRIPCION,
+          TO_CHAR(W.WI_FECHA_CREACION, 'YYYY-MM-DD HH24:MI:SS') AS FECHA_ASIGNACION,
+          MAX(L.INFN_CODIGO) AS BANCO,
+          TO_CHAR(MAX(L.FECHA_RECAUDACION), 'YYYY-MM-DD') AS FECHA_RECAUDACION,
+          COUNT(DISTINCT L.LOTE_ID) AS TOTAL_LOTES,
+          COUNT(DISTINCT CASE WHEN L.ESTADO = 'P' THEN L.LOTE_ID END) AS LOTES_PENDIENTES,
+          COUNT(DISTINCT CASE WHEN L.ESTADO = 'C' THEN L.LOTE_ID END) AS LOTES_CONCILIADOS,
+          NVL(SUM(L.TOTAL_PLN), 0) AS TOTAL_PLANILLAS,
+          NVL(SUM(CASE WHEN L.ESTADO = 'P' THEN L.TOTAL_PLN ELSE 0 END), 0) AS PLANILLAS_PENDIENTES
+        FROM WFE_WORKFLOW.WF_WORK_ITEM W
+        JOIN ORG_LIQ.LOTE L 
+          ON L.EXPEDIENTE = W.WFEX_EXP_ID 
+         AND L.ANHO = W.ANHO
+        ${whereClauses}
+        GROUP BY 
+          W.WFEX_EXP_ID, W.ANHO, W.WORKITEM, W.WFUS_USERS_ID, 
+          W.WI_ESTADO, W.WI_NOMBRE, W.WI_DESCRIPCION, W.WI_FECHA_CREACION
+        HAVING SUM(CASE WHEN L.ESTADO = 'P' THEN 1 ELSE 0 END) > 0
+        ORDER BY W.WFEX_EXP_ID DESC
+      )
+      WHERE ROWNUM <= :limit
+    `;
+
+    const expedientesRows = await this.db.executeQuery<any>(query, binds);
+
+    // Consulta de KPIs rápidos de resumen
+    const kpiQuery = `
+      SELECT 
+        COUNT(DISTINCT W.WFEX_EXP_ID) AS TOTAL_EXPEDIENTES_ABIERTA,
+        COUNT(DISTINCT CASE WHEN UPPER(W.WFUS_USERS_ID) = 'GILLIAMS_0028' THEN W.WFEX_EXP_ID END) AS TOTAL_GILLIAMS_ABIERTA
+      FROM WFE_WORKFLOW.WF_WORK_ITEM W
+      WHERE W.ORGA_ID = '93'
+        AND W.WFTA_TAREA_ID = 2061
+        AND W.WI_ESTADO = 'ABIERTA'
+        AND W.ANHO = :anho
+    `;
+    let kpiData = { TOTAL_EXPEDIENTES_ABIERTA: 0, TOTAL_GILLIAMS_ABIERTA: 0 };
+    try {
+      const kpiRes = await this.db.executeQuery<any>(kpiQuery, { anho });
+      if (kpiRes && kpiRes.length > 0) {
+        kpiData = kpiRes[0];
+      }
+    } catch (kpiErr: any) {
+      this.logger.warn(`No se pudo obtener KPI general de reasignación: ${kpiErr.message}`);
+    }
+
+    const totalPlanillasPendientes = expedientesRows.reduce(
+      (sum, row) => sum + Number(row.PLANILLAS_PENDIENTES || 0),
+      0,
+    );
+    const totalLotesPendientes = expedientesRows.reduce(
+      (sum, row) => sum + Number(row.LOTES_PENDIENTES || 0),
+      0,
+    );
+
+    return {
+      success: true,
+      total_encontrados: expedientesRows.length,
+      kpis: {
+        total_expedientes_abierta: Number(kpiData.TOTAL_EXPEDIENTES_ABIERTA || 0),
+        total_gilliams_abierta: Number(kpiData.TOTAL_GILLIAMS_ABIERTA || 0),
+        planillas_pendientes_en_vista: totalPlanillasPendientes,
+        lotes_pendientes_en_vista: totalLotesPendientes,
+      },
+      filtros_aplicados: {
+        usuario_origen: usuarioOrigen,
+        estado_wi: estadoWi,
+        anho,
+        banco: banco || 'TODOS',
+        limit,
+      },
+      data: expedientesRows.map((r) => ({
+        expediente: Number(r.EXPEDIENTE),
+        anho: Number(r.ANHO),
+        workitem: Number(r.WORKITEM),
+        usuario_asignado: r.USUARIO_ASIGNADO,
+        estado_wi: r.ESTADO_WI,
+        wi_nombre: r.WI_NOMBRE,
+        wi_descripcion: r.WI_DESCRIPCION,
+        fecha_asignacion: r.FECHA_ASIGNACION,
+        banco: r.BANCO,
+        fecha_recaudacion: r.FECHA_RECAUDACION,
+        total_lotes: Number(r.TOTAL_LOTES || 0),
+        lotes_pendientes: Number(r.LOTES_PENDIENTES || 0),
+        lotes_conciliados: Number(r.LOTES_CONCILIADOS || 0),
+        total_planillas: Number(r.TOTAL_PLANILLAS || 0),
+        planillas_pendientes: Number(r.PLANILLAS_PENDIENTES || 0),
+        monto_total: 0,
+      })),
+    };
+  }
+
+  /**
+   * Obtiene la nómina de transcriptores / analistas habilitados en ONT para reasignación de expedientes,
+   * incluyendo su carga actual de trabajo (expedientes en proceso).
+   */
+  async getTranscriptoresReasignacion() {
+    const query = `
+      SELECT 
+        U.USERS_ID,
+        NVL(U.USERS_NOMBRE_CORTO, '') AS NOMBRE_CORTO,
+        NVL(U.USERS_NOMBRE_LARGO, '') AS NOMBRE_LARGO,
+        TRIM(NVL(U.USERS_NOMBRE_CORTO, '') || ' ' || NVL(U.USERS_NOMBRE_LARGO, '')) AS NOMBRE_COMPLETO,
+        U.USERS_STATUS,
+        NVL(U.ORGA_ID, '93') AS ORGA_ID,
+        NVL(CARGA.EXPEDIENTES_ASIGNADOS, 0) AS EXPEDIENTES_ASIGNADOS
+      FROM WFE_WORKFLOW.WF_USERS U
+      LEFT JOIN (
+        SELECT WI.WFUS_USERS_ID, 
+               COUNT(DISTINCT WI.WFEX_EXP_ID) AS EXPEDIENTES_ASIGNADOS
+        FROM WFE_WORKFLOW.WF_WORK_ITEM WI
+        WHERE WI.ORGA_ID = '93'
+          AND WI.WFTA_TAREA_ID = 2061
+          AND WI.WI_ESTADO IN ('ABIERTA', 'PENDIENTE')
+        GROUP BY WI.WFUS_USERS_ID
+      ) CARGA ON CARGA.WFUS_USERS_ID = U.USERS_ID
+      WHERE U.USERS_STATUS = 'A'
+        AND (CARGA.EXPEDIENTES_ASIGNADOS > 0 OR U.ORGA_ID IN ('93', '093'))
+      ORDER BY CARGA.EXPEDIENTES_ASIGNADOS DESC, NOMBRE_COMPLETO ASC
+    `;
+
+    const rows = await this.db.executeQuery<any>(query);
+    return {
+      success: true,
+      total: rows.length,
+      data: rows.map((u) => ({
+        users_id: u.USERS_ID,
+        nombre_corto: u.NOMBRE_CORTO || '',
+        nombre_largo: u.NOMBRE_LARGO || '',
+        nombre_completo: u.NOMBRE_COMPLETO || u.USERS_ID,
+        orga_id: u.ORGA_ID,
+        expedientes_asignados: Number(u.EXPEDIENTES_ASIGNADOS || 0),
+      })),
+    };
+  }
+
+  /**
+   * Reasigna de forma masiva expedientes seleccionados a un nuevo transcriptor.
+   * Cierra el WorkItem actual (estado CERRADA) y genera el nuevo WorkItem en estado PENDIENTE,
+   * cumpliendo el requerimiento de que el expediente pase a PENDIENTE para el nuevo usuario.
+   */
+  async reasignarExpedientesMasivo(dto: EjecutarReasignacionDto) {
+    const { expedientes, nuevo_transcriptor, usuario_operador, observacion } = dto;
+
+    if (!expedientes || !Array.isArray(expedientes) || expedientes.length === 0) {
+      throw new BadRequestException('Debe seleccionar al menos un expediente para reasignar.');
+    }
+
+    if (!nuevo_transcriptor || !nuevo_transcriptor.trim()) {
+      throw new BadRequestException('Debe indicar el nuevo transcriptor destino.');
+    }
+
+    const targetUser = nuevo_transcriptor.trim();
+
+    // 1. Validar que el nuevo transcriptor exista y esté activo en SIGECOF
+    const userCheckQuery = `
+      SELECT USERS_ID, USERS_NOMBRE_CORTO, USERS_NOMBRE_LARGO, USERS_STATUS
+      FROM WFE_WORKFLOW.WF_USERS
+      WHERE UPPER(USERS_ID) = UPPER(:targetUser) AND USERS_STATUS = 'A'
+    `;
+    const userRows = await this.db.executeQuery<any>(userCheckQuery, { targetUser });
+    if (!userRows || userRows.length === 0) {
+      throw new BadRequestException(
+        `El transcriptor destino '${targetUser}' no existe o no se encuentra activo en SIGECOF.`,
+      );
+    }
+    const targetUserData = userRows[0];
+    const nombreNuevoTranscriptor =
+      `${targetUserData.USERS_NOMBRE_CORTO || ''} ${targetUserData.USERS_NOMBRE_LARGO || ''}`.trim() ||
+      targetUserData.USERS_ID;
+
+    const operadorFinal = usuario_operador || 'ONT_SIR_BOT';
+    const observacionFinal =
+      observacion || `Reasignación de balanceo operativo a ${nombreNuevoTranscriptor}`;
+
+    const reasignadosExitosos: any[] = [];
+    const reasignadosFallidos: any[] = [];
+
+    const writeConn = await this.db.getConnection();
+
+    try {
+      for (const item of expedientes) {
+        const expNum = Number(item.expediente);
+        const anhoNum = Number(item.anho || 2024);
+
+        try {
+          // Consultar historial de WorkItems de este expediente en la organización 93
+          const wiQuery = `
+            SELECT WORKITEM, WFEX_EXP_ID, ANHO, ORGA_ID, WI_NOMBRE, WI_DESCRIPCION, WI_ORIGEN,
+                   WI_ESTADO, WFUS_USERS_ID, WFTA_TAREA_ID
+            FROM WFE_WORKFLOW.WF_WORK_ITEM
+            WHERE WFEX_EXP_ID = :expNum AND ANHO = :anhoNum AND ORGA_ID = '93'
+            ORDER BY WORKITEM ASC
+          `;
+          const currentWis = await this.db.executeQuery<any>(wiQuery, { expNum, anhoNum });
+
+          // Calcular siguiente secuencia de WorkItem
+          let maxWi = 0;
+          for (const wi of currentWis) {
+            const n = Number(wi.WORKITEM);
+            if (!isNaN(n) && n > maxWi) maxWi = n;
+          }
+          const nextWi = maxWi + 1;
+
+          // Detectar el WorkItem activo actual (ABIERTA o PENDIENTE)
+          const activeWi =
+            currentWis.find(
+              (w) =>
+                (w.WI_ESTADO === 'ABIERTA' || w.WI_ESTADO === 'PENDIENTE') &&
+                (Number(w.WFTA_TAREA_ID) === 2061 || Number(w.WFTA_TAREA_ID) === 2060),
+            ) || currentWis[currentWis.length - 1];
+
+          const currentWiNum = activeWi ? Number(activeWi.WORKITEM) : item.workitem || null;
+          const usuarioAnterior = activeWi?.WFUS_USERS_ID || 'GILLIAMS_0028';
+
+          // Rescatar o construir descripción estándar
+          let descripcionWi = activeWi?.WI_DESCRIPCION;
+          if (!descripcionWi) {
+            const bancoLote = item.banco || '';
+            const fechaLote = item.fecha_recaudacion || '';
+            descripcionWi = `REASIGNACION - Banco: ${bancoLote} Dia: ${fechaLote}`;
+          }
+
+          // A) Cerrar el WorkItem activo anterior
+          if (currentWiNum && activeWi?.WI_ESTADO !== 'CERRADA') {
+            await writeConn.execute(
+              `UPDATE WFE_WORKFLOW.WF_WORK_ITEM
+               SET WI_ESTADO = 'CERRADA',
+                   WI_FECHA_CIERRE = SYSDATE,
+                   WI_OBSERVACION = NVL(:obs, WI_OBSERVACION)
+               WHERE WFEX_EXP_ID = :expNum
+                 AND ANHO = :anhoNum
+                 AND ORGA_ID = '93'
+                 AND WORKITEM = :currentWiNum`,
+              {
+                expNum,
+                anhoNum,
+                currentWiNum,
+                obs: `Cerrado por reasignación de carga hacia ${targetUserData.USERS_ID}`,
+              },
+              { autoCommit: false },
+            );
+          }
+
+          // B) Insertar el nuevo WorkItem en estado 'PENDIENTE' para el nuevo transcriptor
+          await writeConn.execute(
+            `INSERT INTO WFE_WORKFLOW.WF_WORK_ITEM (
+               WORKITEM, WFEX_EXP_ID, ANHO, ORGA_ID,
+               WI_NOMBRE, WI_DESCRIPCION, WI_ORIGEN,
+               WI_PRIORIDAD, WI_ESTADO, WI_FECHA_CREACION,
+               WI_FECHA_VENCIMIENTO, WFUS_USERS_ID,
+               WFTA_TAREA_ID, WI_OBSERVACION
+             ) VALUES (
+               :nextWi, :expNum, :anhoNum, '93',
+               'REASIGNACION - CONCILIACION DE PLANILLAS AUTOMATICO',
+               :descripcion, :usuarioOrigen,
+               '1', 'PENDIENTE', SYSDATE,
+               SYSDATE + 5, :nuevoTranscriptor,
+               2061, :observacion
+             )`,
+            {
+              nextWi,
+              expNum,
+              anhoNum,
+              descripcion: descripcionWi,
+              usuarioOrigen: operadorFinal,
+              nuevoTranscriptor: targetUserData.USERS_ID,
+              observacion: observacionFinal,
+            },
+            { autoCommit: false },
+          );
+
+          await writeConn.commit();
+
+          // C) Registrar auditoría en PostgreSQL
+          await this.registrarAuditoriaJson({
+            accion: 'REASIGNACION_EXPEDIENTES_CARGA',
+            expediente: expNum,
+            anho: anhoNum,
+            usuario_operador: operadorFinal,
+            usuario_anterior: usuarioAnterior,
+            nuevo_transcriptor: targetUserData.USERS_ID,
+            nombre_nuevo_transcriptor: nombreNuevoTranscriptor,
+            workitem_cerrado: currentWiNum,
+            workitem_nuevo: nextWi,
+            estado_anterior: activeWi?.WI_ESTADO || 'ABIERTA',
+            estado_nuevo: 'PENDIENTE',
+            tarea_id: 2061,
+            tarea_nombre: 'CONCILIACION DE PLANILLAS AUTOMATICO',
+            observacion: observacionFinal,
+            timestamp: new Date().toISOString(),
+          });
+
+          reasignadosExitosos.push({
+            expediente: expNum,
+            anho: anhoNum,
+            workitem_anterior: currentWiNum,
+            workitem_nuevo: nextWi,
+            usuario_anterior: usuarioAnterior,
+            nuevo_transcriptor: targetUserData.USERS_ID,
+            nuevo_estado: 'PENDIENTE',
+          });
+        } catch (itemErr: any) {
+          await writeConn.rollback();
+          this.logger.error(`Error al reasignar expediente ${expNum}: ${itemErr.message}`);
+          reasignadosFallidos.push({
+            expediente: expNum,
+            anho: anhoNum,
+            error: itemErr.message,
+          });
+        }
+      }
+    } finally {
+      try {
+        await writeConn.close();
+      } catch {}
+    }
+
+    return {
+      success: reasignadosFallidos.length === 0,
+      total_solicitados: expedientes.length,
+      total_exitosos: reasignadosExitosos.length,
+      total_fallidos: reasignadosFallidos.length,
+      nuevo_transcriptor: targetUserData.USERS_ID,
+      nombre_nuevo_transcriptor: nombreNuevoTranscriptor,
+      exitosos: reasignadosExitosos,
+      fallidos: reasignadosFallidos,
+      mensaje:
+        `Reasignación procesada: ${reasignadosExitosos.length} expediente(s) transferido(s) a ${nombreNuevoTranscriptor} en estado PENDIENTE.` +
+        (reasignadosFallidos.length > 0 ? ` (${reasignadosFallidos.length} con error).` : ''),
     };
   }
 }

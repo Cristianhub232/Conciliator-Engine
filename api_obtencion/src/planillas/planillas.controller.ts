@@ -9,6 +9,10 @@ import {
   DepurarDuplicadosTxtDto, 
   ConciliarEspecialesDto 
 } from './dto/planillas-swagger.dto';
+import { 
+  ConsultarExpedientesReasignacionDto, 
+  EjecutarReasignacionDto 
+} from './dto/reasignacion.dto';
 
 function sanitizeBanco(banco?: string): string {
   if (!banco) return '';
@@ -382,6 +386,103 @@ export class PlanillasController {
       if (error instanceof HttpException) throw error;
       throw new HttpException(
         { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error al cerrar expediente y reasignar a validación', message: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Get('reasignacion/pendientes')
+  @ApiOperation({
+    summary: 'Consultar expedientes en ABIERTA o PENDIENTE para balanceo de carga',
+    description: 'Detecta expedientes en Tarea 2061 con lotes pendientes, filtrando por usuario origen (por defecto GILLIAMS_0028) y estado.'
+  })
+  @ApiQuery({ name: 'usuario_origen', required: false, example: 'GILLIAMS_0028', description: 'Usuario asignado actual o TODOS' })
+  @ApiQuery({ name: 'estado_wi', required: false, example: 'ABIERTA', description: 'Estado del WorkItem (ABIERTA, PENDIENTE o TODOS)' })
+  @ApiQuery({ name: 'anho', required: false, example: 2024, description: 'Año del expediente' })
+  @ApiQuery({ name: 'mes', required: false, example: '05', description: 'Mes de recaudación (01 al 12 o TODOS)' })
+  @ApiQuery({ name: 'banco', required: false, example: '105', description: 'Código del banco' })
+  @ApiQuery({ name: 'search', required: false, example: '2627', description: 'Búsqueda por número de expediente' })
+  @ApiQuery({ name: 'limit', required: false, example: 100, description: 'Límite de expedientes a listar' })
+  @ApiResponse({ status: 200, description: 'Lista de expedientes pendientes para reasignar obtenida' })
+  async getExpedientesReasignacion(
+    @Query('usuario_origen') usuario_origen?: string,
+    @Query('estado_wi') estado_wi?: string,
+    @Query('anho') anho?: string,
+    @Query('mes') mes?: string,
+    @Query('banco') banco?: string,
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+  ) {
+    try {
+      const cleanBanco = banco ? sanitizeBanco(banco) : undefined;
+      const dto: ConsultarExpedientesReasignacionDto = {
+        usuario_origen: usuario_origen || 'GILLIAMS_0028',
+        estado_wi: estado_wi || 'ABIERTA',
+        anho: anho ? parseInt(anho, 10) : 2024,
+        mes: mes && mes !== 'TODOS' ? mes.trim() : undefined,
+        banco: cleanBanco,
+        search: search ? search.trim() : undefined,
+        limit: limit ? parseInt(limit, 10) : 100,
+      };
+
+      const result = await this.planillasService.consultarExpedientesPendientesReasignacion(dto);
+      return result;
+    } catch (error: any) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error al consultar expedientes para reasignación', message: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Get('reasignacion/transcriptores')
+  @ApiOperation({
+    summary: 'Listar transcriptores ONT disponibles para reasignación',
+    description: 'Devuelve los usuarios transcriptores con su volumen actual de expedientes asignados.'
+  })
+  @ApiResponse({ status: 200, description: 'Lista de transcriptores con carga obtenida' })
+  async getTranscriptoresReasignacion() {
+    try {
+      const result = await this.planillasService.getTranscriptoresReasignacion();
+      return result;
+    } catch (error: any) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error al consultar transcriptores para reasignación', message: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Post('reasignacion/ejecutar')
+  @ApiOperation({
+    summary: 'Ejecutar reasignación masiva de expedientes (ABIERTA a PENDIENTE)',
+    description: 'Cierra el WorkItem activo y genera un nuevo WorkItem en estado PENDIENTE asignado al transcriptor seleccionado.'
+  })
+  @ApiBody({ type: EjecutarReasignacionDto })
+  @ApiResponse({ status: 200, description: 'Reasignación masiva ejecutada con éxito' })
+  async ejecutarReasignacionMasiva(@Body() payload: EjecutarReasignacionDto) {
+    if (!payload.nuevo_transcriptor) {
+      throw new HttpException(
+        { status: HttpStatus.BAD_REQUEST, error: 'Bad Request', message: 'Debe especificar el nuevo_transcriptor destino.' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    if (!payload.expedientes || !Array.isArray(payload.expedientes) || payload.expedientes.length === 0) {
+      throw new HttpException(
+        { status: HttpStatus.BAD_REQUEST, error: 'Bad Request', message: 'Debe seleccionar al menos un expediente.' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    try {
+      const result = await this.planillasService.reasignarExpedientesMasivo(payload);
+      return result;
+    } catch (error: any) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error al ejecutar la reasignación de expedientes', message: error.message },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

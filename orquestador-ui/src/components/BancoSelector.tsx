@@ -138,9 +138,10 @@ export const BancoSelector: React.FC<BancoSelectorProps> = ({
       id={id}
       style={{
         position: 'relative',
-        display: 'inline-block',
+        display: 'block',
         width: '100%',
-        minWidth: style?.minWidth || '260px',
+        minWidth: style?.minWidth || 0,
+        maxWidth: '100%',
         userSelect: 'none',
       }}
       onKeyDown={handleKeyDown}
@@ -170,7 +171,7 @@ export const BancoSelector: React.FC<BancoSelectorProps> = ({
         aria-haspopup="listbox"
         aria-expanded={isOpen}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flex: 1 }}>
           {normalizedValue === 'TODOS' ? (
             <span style={{ 
               display: 'inline-flex', 

@@ -15,12 +15,13 @@ import {
   BookOpen,
   ShieldAlert,
   Bot,
-  Landmark
+  Landmark,
+  ArrowRightLeft
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { AppVersionBadge } from './AppVersionBadge';
 
-export type NavTab = 'conciliacion' | 'transcriptores' | 'expedientes' | 'auditoria' | 'catalogo_formas' | 'depuracion' | 'notas_credito' | 'bot-config' | 'usuarios' | 'configuracion';
+export type NavTab = 'conciliacion' | 'reasignacion' | 'transcriptores' | 'expedientes' | 'auditoria' | 'catalogo_formas' | 'depuracion' | 'notas_credito' | 'bot-config' | 'usuarios' | 'configuracion';
 
 interface SidebarProps {
   activeTab: NavTab;
@@ -67,6 +68,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Conciliación Masiva',
       icon: Zap,
       badge: 'Motor'
+    },
+    {
+      id: 'reasignacion' as NavTab,
+      label: 'Reasignar Carga',
+      icon: ArrowRightLeft,
+      badge: 'Workflow'
     },
     {
       id: 'transcriptores' as NavTab,
