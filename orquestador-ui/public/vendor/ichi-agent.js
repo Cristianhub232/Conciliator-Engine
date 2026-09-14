@@ -82,11 +82,29 @@
     '.thread{flex:1 1 auto;min-height:190px;overflow-y:auto;overflow-x:hidden;padding:16px;background:#F6F8FA;display:flex;flex-direction:column;gap:12px}',
     '.row{display:flex;gap:9px;animation:ichiMsgIn 180ms ease-out both}',
     '.row.user{justify-content:flex-end}',
-    '.bub{max-width:390px;padding:12px 15px;border:1px solid #E1E7EE;border-radius:12px 12px 12px 3px;background:#fff}',
+    '.bub{max-width:410px;padding:12px 15px;border:1px solid #E1E7EE;border-radius:12px 12px 12px 3px;background:#fff}',
     '.row.user .bub{border-color:#0E2452;border-radius:12px 12px 3px 12px;background:#0E2452}',
-    '.bub p{margin:0;font-size:13.5px;line-height:1.55;letter-spacing:-.005em;color:#26364E;white-space:pre-wrap;word-break:break-word;font-variant-numeric:tabular-nums}',
+    '.bub p{margin:0;font-size:13px;line-height:1.55;letter-spacing:-.005em;color:#26364E;white-space:pre-wrap;word-break:break-word;font-variant-numeric:tabular-nums}',
     '.row.user .bub p{color:#fff}',
     '.bub .note{margin-top:9px;padding-top:8px;border-top:1px solid #E1E7EE;font-family:"IBM Plex Mono",monospace;font-size:10px;line-height:1.5;color:#8797A8}',
+    '.ichi-content{font-size:13px;line-height:1.55;color:#26364E;word-break:break-word}',
+    '.ichi-content p{margin:0 0 7px 0;font-size:13px;line-height:1.55;color:#26364E}',
+    '.ichi-content p:last-child{margin-bottom:0}',
+    '.ichi-content strong{color:#0E2452;font-weight:700}',
+    '.ichi-content em{font-style:italic;color:#475569}',
+    '.ichi-tbl-wrap{width:100%;overflow-x:auto;margin:8px 0;border-radius:8px;border:1px solid #DCE3EC;background:#FFFFFF;box-shadow:0 1px 3px rgba(0,0,0,0.03)}',
+    '.ichi-tbl{width:100%;border-collapse:collapse;font-size:11.5px;line-height:1.45;text-align:left}',
+    '.ichi-tbl th{background:#0E2452;color:#FFFFFF;font-weight:600;padding:7px 9px;border-bottom:2px solid #7FC8EE;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;white-space:nowrap}',
+    '.ichi-tbl td{padding:6px 9px;border-bottom:1px solid #EDF2F7;color:#1E293B;vertical-align:middle}',
+    '.ichi-tbl tr:nth-child(even) td{background:#F8FAFC}',
+    '.ichi-tbl tr:last-child td{border-bottom:none}',
+    '.ichi-code{font-family:"IBM Plex Mono",monospace;font-size:11px;background:#EEF3F8;color:#0E2452;padding:1px 5px;border-radius:4px;border:1px solid #CBD5E1}',
+    '.ichi-li{display:flex;align-items:flex-start;gap:7px;margin:3px 0;font-size:12.5px;line-height:1.5;color:#1E293B}',
+    '.ichi-bullet{color:#1E5C99;font-weight:bold;font-size:13px;line-height:1.3;flex:none}',
+    '.ichi-num{color:#1E5C99;font-weight:700;font-size:11.5px;flex:none}',
+    '.ichi-h2{font-size:13.5px;font-weight:700;color:#0A1733;margin:8px 0 4px}',
+    '.ichi-h3{font-size:12.5px;font-weight:700;color:#1E5C99;margin:6px 0 3px}',
+    '.ichi-spacer{height:6px}',
     '.dots{display:flex;align-items:center;gap:5px;padding:12px 14px;border:1px solid #E1E7EE;border-radius:12px 12px 12px 3px;background:#fff}',
     '.dots i{width:6px;height:6px;border-radius:50%;background:#1E5C99;animation:ichiBlink 1.1s ease-in-out infinite}',
     '.dots i:nth-child(2){animation-delay:.16s}.dots i:nth-child(3){animation-delay:.32s}',
@@ -208,13 +226,128 @@
     this._chips.style.display = this._thread.childElementCount <= 3 && !this._busy ? 'flex' : 'none';
   };
 
+  function escapeHtml(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function formatInline(str) {
+    return str
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+      .replace(/`([^`]+)`/g, '<code class="ichi-code">$1</code>');
+  }
+
+  function formatRichText(raw) {
+    if (!raw) return '';
+    var lines = String(raw).split('\n');
+    var html = [];
+    var inTable = false;
+    var tableRows = [];
+
+    function flushTable() {
+      if (!tableRows.length) return;
+      var out = '<div class="ichi-tbl-wrap"><table class="ichi-tbl">';
+      var isHeader = true;
+      for (var i = 0; i < tableRows.length; i++) {
+        var rowStr = tableRows[i].trim();
+        // Separador de tabla | :--- | :--- |
+        if (/^\|?[\s\-:|]+\|?$/.test(rowStr)) {
+          isHeader = false;
+          continue;
+        }
+        var cells = rowStr.split('|');
+        if (cells.length > 1) {
+          if (cells[0].trim() === '') cells.shift();
+          if (cells.length && cells[cells.length - 1].trim() === '') cells.pop();
+        }
+        if (!cells.length) continue;
+
+        var tag = isHeader ? 'th' : 'td';
+        out += '<tr>';
+        for (var c = 0; c < cells.length; c++) {
+          var cellVal = cells[c] ? cells[c].trim() : '';
+          var cellContent = formatInline(escapeHtml(cellVal));
+          out += '<' + tag + '>' + cellContent + '</' + tag + '>';
+        }
+        out += '</tr>';
+        if (isHeader) isHeader = false;
+      }
+      out += '</table></div>';
+      html.push(out);
+      tableRows = [];
+      inTable = false;
+    }
+
+    for (var idx = 0; idx < lines.length; idx++) {
+      var line = lines[idx];
+      var trimmed = line.trim();
+
+      // Detección de filas de tabla Markdown
+      if (trimmed.indexOf('|') !== -1 && (trimmed.startsWith('|') || trimmed.endsWith('|') || /^[^|]+\|[^|]+/.test(trimmed))) {
+        inTable = true;
+        tableRows.push(trimmed);
+        continue;
+      } else {
+        if (inTable) flushTable();
+      }
+
+      if (!trimmed) {
+        html.push('<div class="ichi-spacer"></div>');
+        continue;
+      }
+
+      // Títulos Markdown
+      if (/^###\s+/.test(trimmed)) {
+        html.push('<div class="ichi-h3">' + formatInline(escapeHtml(trimmed.replace(/^###\s+/, ''))) + '</div>');
+        continue;
+      }
+      if (/^##?\s+/.test(trimmed)) {
+        html.push('<div class="ichi-h2">' + formatInline(escapeHtml(trimmed.replace(/^##?\s+/, ''))) + '</div>');
+        continue;
+      }
+
+      // Viñetas y listas
+      if (/^[-*•]\s+/.test(trimmed)) {
+        var itemContent = formatInline(escapeHtml(trimmed.replace(/^[-*•]\s+/, '')));
+        html.push('<div class="ichi-li"><span class="ichi-bullet">•</span><span>' + itemContent + '</span></div>');
+        continue;
+      }
+      var numMatch = trimmed.match(/^([0-9]+\.)\s+(.+)$/);
+      if (numMatch) {
+        var numItemContent = formatInline(escapeHtml(numMatch[2]));
+        html.push('<div class="ichi-li"><span class="ichi-num">' + escapeHtml(numMatch[1]) + '</span><span>' + numItemContent + '</span></div>');
+        continue;
+      }
+
+      // Párrafo estándar
+      html.push('<p>' + formatInline(escapeHtml(line)) + '</p>');
+    }
+
+    if (inTable) flushTable();
+
+    return html.join('');
+  }
+
   IchiAgent.prototype.push = function (role, text, note) {
     var row = document.createElement('div');
     row.className = 'row ' + (role === 'agent' ? 'agent' : 'user');
     row.innerHTML =
       (role === 'agent' ? '<div style="flex:none;margin-top:2px">' + avatar(26, false) + '</div>' : '') +
-      '<div class="bub"><p></p>' + (note ? '<div class="note"></div>' : '') + '</div>';
-    row.querySelector('p').textContent = text;
+      '<div class="bub"><div class="ichi-content"></div>' + (note ? '<div class="note"></div>' : '') + '</div>';
+    
+    var contentEl = row.querySelector('.ichi-content');
+    if (role === 'agent') {
+      contentEl.innerHTML = formatRichText(text);
+    } else {
+      var p = document.createElement('p');
+      p.textContent = text;
+      contentEl.appendChild(p);
+    }
+
     if (note) row.querySelector('.note').textContent = note;
     this._thread.appendChild(row);
     this._thread.scrollTop = this._thread.scrollHeight;

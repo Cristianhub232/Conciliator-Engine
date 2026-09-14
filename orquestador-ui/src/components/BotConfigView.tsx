@@ -65,6 +65,221 @@ interface BotConfigData {
   };
 }
 
+// Helpers para interpretar formato Markdown/Tablas en Texto Enriquecido
+function renderInlineRich(text: string) {
+  const parts: React.ReactNode[] = [];
+  const regex = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+  let lastIdx = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIdx) {
+      parts.push(text.substring(lastIdx, match.index));
+    }
+    const token = match[0];
+    if (token.startsWith('`') && token.endsWith('`')) {
+      parts.push(
+        <code
+          key={match.index}
+          style={{
+            fontFamily: 'monospace',
+            fontSize: '11.5px',
+            background: '#EEF2F6',
+            color: '#0F172A',
+            padding: '2px 6px',
+            borderRadius: '4px',
+            border: '1px solid #CBD5E1',
+            margin: '0 2px'
+          }}
+        >
+          {token.slice(1, -1)}
+        </code>
+      );
+    } else if (token.startsWith('**') && token.endsWith('**')) {
+      parts.push(
+        <strong key={match.index} style={{ color: '#0F172A', fontWeight: 700 }}>
+          {token.slice(2, -2)}
+        </strong>
+      );
+    } else if (token.startsWith('*') && token.endsWith('*')) {
+      parts.push(
+        <em key={match.index} style={{ color: '#475569', fontStyle: 'italic' }}>
+          {token.slice(1, -1)}
+        </em>
+      );
+    }
+    lastIdx = regex.lastIndex;
+  }
+
+  if (lastIdx < text.length) {
+    parts.push(text.substring(lastIdx));
+  }
+
+  return parts.length > 0 ? parts : text;
+}
+
+function renderFormattedAgentText(rawText: string) {
+  if (!rawText) return null;
+  const lines = rawText.split('\n');
+  const elements: React.ReactNode[] = [];
+  let inTable = false;
+  let tableRows: string[] = [];
+
+  const flushTable = (keyPrefix: number) => {
+    if (tableRows.length === 0) return;
+    let isHeader = true;
+    const renderedRows: React.ReactNode[] = [];
+
+    tableRows.forEach((rowStr, rIdx) => {
+      const trimmed = rowStr.trim();
+      if (/^\|?[\s\-:|]+\|?$/.test(trimmed)) {
+        isHeader = false;
+        return;
+      }
+      let cells = trimmed.split('|');
+      if (cells.length > 1) {
+        if (cells[0].trim() === '') cells.shift();
+        if (cells.length && cells[cells.length - 1].trim() === '') cells.pop();
+      }
+      if (cells.length === 0) return;
+
+      const isCurrentHeader = isHeader;
+      renderedRows.push(
+        <tr
+          key={rIdx}
+          style={{
+            background: isCurrentHeader ? '#0F172A' : rIdx % 2 === 0 ? '#FFFFFF' : '#F8FAFC',
+            borderBottom: '1px solid #E2E8F0'
+          }}
+        >
+          {cells.map((c, cIdx) => {
+            const cellVal = c.trim();
+            return isCurrentHeader ? (
+              <th
+                key={cIdx}
+                style={{
+                  padding: '9px 12px',
+                  color: '#FFFFFF',
+                  fontWeight: 600,
+                  fontSize: '11.5px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                  textAlign: 'left',
+                  borderBottom: '2px solid #38BDF8'
+                }}
+              >
+                {renderInlineRich(cellVal)}
+              </th>
+            ) : (
+              <td
+                key={cIdx}
+                style={{
+                  padding: '8px 12px',
+                  color: '#1E293B',
+                  fontSize: '12.5px',
+                  verticalAlign: 'middle'
+                }}
+              >
+                {renderInlineRich(cellVal)}
+              </td>
+            );
+          })}
+        </tr>
+      );
+
+      if (isHeader) isHeader = false;
+    });
+
+    elements.push(
+      <div
+        key={`tbl-${keyPrefix}`}
+        style={{
+          width: '100%',
+          overflowX: 'auto',
+          margin: '12px 0',
+          borderRadius: '8px',
+          border: '1px solid #CBD5E1',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+          background: '#FFFFFF'
+        }}
+      >
+        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+          <tbody>{renderedRows}</tbody>
+        </table>
+      </div>
+    );
+
+    tableRows = [];
+    inTable = false;
+  };
+
+  lines.forEach((line, idx) => {
+    const trimmed = line.trim();
+
+    if (trimmed.includes('|') && (trimmed.startsWith('|') || trimmed.endsWith('|') || /^[^|]+\|[^|]+/.test(trimmed))) {
+      inTable = true;
+      tableRows.push(trimmed);
+      return;
+    } else {
+      if (inTable) flushTable(idx);
+    }
+
+    if (!trimmed) {
+      elements.push(<div key={`sp-${idx}`} style={{ height: '8px' }} />);
+      return;
+    }
+
+    if (/^###\s+/.test(trimmed)) {
+      elements.push(
+        <div key={`h3-${idx}`} style={{ fontSize: '13px', fontWeight: 700, color: '#0284C7', margin: '8px 0 3px' }}>
+          {renderInlineRich(trimmed.replace(/^###\s+/, ''))}
+        </div>
+      );
+      return;
+    }
+
+    if (/^##?\s+/.test(trimmed)) {
+      elements.push(
+        <div key={`h2-${idx}`} style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A', margin: '10px 0 4px' }}>
+          {renderInlineRich(trimmed.replace(/^##?\s+/, ''))}
+        </div>
+      );
+      return;
+    }
+
+    if (/^[-*•]\s+/.test(trimmed)) {
+      elements.push(
+        <div key={`li-${idx}`} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', margin: '4px 0', fontSize: '13px', color: '#334155' }}>
+          <span style={{ color: '#0284C7', fontWeight: 'bold' }}>•</span>
+          <div>{renderInlineRich(trimmed.replace(/^[-*•]\s+/, ''))}</div>
+        </div>
+      );
+      return;
+    }
+
+    const numMatch = trimmed.match(/^([0-9]+\.)\s+(.+)$/);
+    if (numMatch) {
+      elements.push(
+        <div key={`num-${idx}`} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', margin: '4px 0', fontSize: '13px', color: '#334155' }}>
+          <span style={{ color: '#0284C7', fontWeight: 600, fontSize: '12px' }}>{numMatch[1]}</span>
+          <div>{renderInlineRich(numMatch[2])}</div>
+        </div>
+      );
+      return;
+    }
+
+    elements.push(
+      <p key={`p-${idx}`} style={{ margin: '0 0 6px 0', fontSize: '13.5px', color: '#334155', lineHeight: '1.6' }}>
+        {renderInlineRich(line)}
+      </p>
+    );
+  });
+
+  if (inTable) flushTable(lines.length);
+
+  return elements;
+}
+
 export const BotConfigView: React.FC = () => {
   // Pestaña Principal: Bot Telegram vs Agente Flotante ICHI
   const [mainTab, setMainTab] = useState<'telegram_bot' | 'ichi_agent'>('telegram_bot');
@@ -1369,9 +1584,9 @@ export const BotConfigView: React.FC = () => {
                   </div>
                   <span style={{ fontSize: '11px', color: '#94A3B8' }}>{ichiTestResponse.timestamp}</span>
                 </div>
-                <p style={{ fontSize: '13.5px', color: '#334155', lineHeight: '1.6', margin: '0 0 10px 0' }}>
-                  {ichiTestResponse.text}
-                </p>
+                <div style={{ margin: '0 0 10px 0' }}>
+                  {renderFormattedAgentText(ichiTestResponse.text)}
+                </div>
                 {ichiTestResponse.note && (
                   <div style={{
                     paddingTop: '8px',
