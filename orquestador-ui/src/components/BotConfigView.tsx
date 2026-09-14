@@ -121,8 +121,21 @@ export const BotConfigView: React.FC = () => {
     'Eres ICHI, el asistente de inteligencia artificial oficial de la Oficina Nacional del Tesoro (ONT) y SENIAT. Tu especialidad es la conciliación bancaria masiva, análisis de lotes presupuestarios en Oracle SIGE1, depuración de formas tributarias (Forma 99044) y control de expedientes de recaudación.'
   );
 
+  // Herramientas y Políticas de Consulta para ICHI
+  const [ichiTools, setIchiTools] = useState<string[]>([
+    'consultar_resumen_banco',
+    'consultar_planillas_pendientes',
+    'consultar_estado_motor',
+    'consultar_expediente',
+    'consultar_formas_excluidas'
+  ]);
+  const [ichiFormatTabular, setIchiFormatTabular] = useState<boolean>(true);
+  const [ichiFormatCurrency, setIchiFormatCurrency] = useState<boolean>(true);
+  const [ichiFormatExecutive, setIchiFormatExecutive] = useState<boolean>(false);
+  const [ichiMaxRecords, setIchiMaxRecords] = useState<number>(10);
+
   // Playground para ICHI
-  const [ichiTestQuery, setIchiTestQuery] = useState('¿Cómo imputa la forma 99044 y qué porcentaje del lote representa?');
+  const [ichiTestQuery, setIchiTestQuery] = useState('¿Cuántas planillas quedan pendientes en el banco 105?');
   const [testingIchi, setTestingIchi] = useState(false);
   const [ichiTestResponse, setIchiTestResponse] = useState<any>(null);
 
@@ -193,6 +206,21 @@ export const BotConfigView: React.FC = () => {
 
         const savedIchiPrompt = localStorage.getItem('ichi_system_prompt');
         if (savedIchiPrompt) setIchiSystemPrompt(savedIchiPrompt);
+
+        const savedTools = localStorage.getItem('ichi_tools');
+        if (savedTools) setIchiTools(JSON.parse(savedTools));
+
+        const savedTabular = localStorage.getItem('ichi_format_tabular');
+        if (savedTabular !== null) setIchiFormatTabular(savedTabular !== 'false');
+
+        const savedCurrency = localStorage.getItem('ichi_format_currency');
+        if (savedCurrency !== null) setIchiFormatCurrency(savedCurrency !== 'false');
+
+        const savedExec = localStorage.getItem('ichi_format_executive');
+        if (savedExec !== null) setIchiFormatExecutive(savedExec === 'true');
+
+        const savedMax = localStorage.getItem('ichi_max_records');
+        if (savedMax) setIchiMaxRecords(Number(savedMax) || 10);
       } catch (e) {
         console.warn('Error cargando settings locales de Ichi:', e);
       }
@@ -240,11 +268,18 @@ export const BotConfigView: React.FC = () => {
       localStorage.setItem('ichi_temperature', ichiTemperature);
       localStorage.setItem('ichi_system_prompt', ichiSystemPrompt);
 
+      // Guardar herramientas y opciones de formato
+      localStorage.setItem('ichi_tools', JSON.stringify(ichiTools));
+      localStorage.setItem('ichi_format_tabular', ichiFormatTabular ? 'true' : 'false');
+      localStorage.setItem('ichi_format_currency', ichiFormatCurrency ? 'true' : 'false');
+      localStorage.setItem('ichi_format_executive', ichiFormatExecutive ? 'true' : 'false');
+      localStorage.setItem('ichi_max_records', String(ichiMaxRecords));
+
       window.dispatchEvent(new Event('ichi_status_changed'));
 
       setFeedback({
         tipo: 'exito',
-        texto: `Configuración de ICHI guardada exitosamente. Modelo asignado: ${ichiModel} (${ichiProvider.toUpperCase()}).`
+        texto: `Configuración y Habilidades de ICHI guardadas exitosamente. Modelo: ${ichiModel} (${ichiProvider.toUpperCase()}) con ${ichiTools.length} consultas predefinidas habilitadas.`
       });
     } catch (e: any) {
       setFeedback({
@@ -254,32 +289,57 @@ export const BotConfigView: React.FC = () => {
     }
   };
 
-  // Prueba en vivo de ICHI Playground
+  // Toggle para habilitar/deshabilitar herramientas individuales
+  const toggleIchiTool = (toolId: string) => {
+    setIchiTools(prev => 
+      prev.includes(toolId) ? prev.filter(t => t !== toolId) : [...prev, toolId]
+    );
+  };
+
+  // Prueba en vivo de ICHI Playground conectado al Gateway de herramientas
   const handleTestIchiPlayground = async () => {
     if (!ichiTestQuery.trim()) return;
     setTestingIchi(true);
     setIchiTestResponse(null);
 
-    // Simulación de inferencia NLU
-    await new Promise((resolve) => setTimeout(resolve, 900));
+    try {
+      const res = await fetch('/api/orquestador/ichi/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pregunta: ichiTestQuery,
+          context: 'Banco de Pruebas · Orquestador de Bot & IA',
+          enabledTools: ichiTools,
+          formatOptions: {
+            tabular: ichiFormatTabular,
+            currency: ichiFormatCurrency,
+            executive: ichiFormatExecutive,
+            maxRecords: ichiMaxRecords
+          }
+        })
+      });
 
-    const q = ichiTestQuery.toLowerCase();
-    let text = '';
-    let note = '';
-
-    if (/99044|forma|partida/.test(q)) {
-      text = `La forma 99044 (ISLR Declaración Definitiva) está clasificada como regla DIRECTA hacia la partida presupuestaria 3.01.01.01.00. Representa aproximadamente el 55% del volumen de recaudación en el lote analizado.`;
-      note = `Regla Directa · Catálogo Centralizado de Formas ONT · Modelo: ${ichiModel}`;
-    } else if (/pendient|lote|estado/.test(q)) {
-      text = `En el lote activo de Oracle SIGECOF se detectan planillas en estado pendiente ('P'). El expediente mantiene cuadre matemático verificable.`;
-      note = `Oracle SIGE1 (WFE_WORKFLOW) · Modelo: ${ichiModel}`;
-    } else {
-      text = `Consulta procesada con éxito por el modelo ${ichiModel} asignado a ICHI. Los parámetros de contexto institucional del SENIAT y reglas ONT se encuentran cargados correctamente.`;
-      note = `Inferencia IA · Proveedor ${ichiProvider.toUpperCase()} · Temp ${ichiTemperature}`;
+      if (res.ok) {
+        const data = await res.json();
+        setIchiTestResponse({
+          text: data.text,
+          note: data.note || 'Gateway ONT · Consulta Predefinida',
+          toolUsed: data.toolUsed,
+          timestamp: new Date().toLocaleTimeString()
+        });
+      } else {
+        throw new Error(`HTTP ${res.status}`);
+      }
+    } catch (err: any) {
+      // Fallback si la API no está disponible
+      setIchiTestResponse({
+        text: `Error conectando con el Gateway de ICHI: ${err.message}. Verifique que el servicio backend se encuentre operativo.`,
+        note: 'Fallo de conexión o tiempo de espera agotado',
+        timestamp: new Date().toLocaleTimeString()
+      });
+    } finally {
+      setTestingIchi(false);
     }
-
-    setIchiTestResponse({ text, note, timestamp: new Date().toLocaleTimeString() });
-    setTestingIchi(false);
   };
 
   // Guardar configuración general de Bot Telegram
@@ -900,6 +960,274 @@ export const BotConfigView: React.FC = () => {
                 Guardar Especificación de Modelo para ICHI
               </button>
             </div>
+          </div>
+
+          {/* GRID DE MATRIZ DE HABILIDADES Y FORMATO DE SALIDA */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '24px' }}>
+
+            {/* TARJETA 3: MATRIZ DE CONSULTAS PREDEFINIDAS Y HABILIDADES SIGECOF */}
+            <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '10px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ background: '#EFF6FF', padding: '8px', borderRadius: '8px', border: '1px solid #BFDBFE' }}>
+                    <Database style={{ width: '20px', height: '20px', color: '#0284C7' }} />
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: '16px', fontWeight: '700', color: '#0F172A', margin: 0 }}>
+                      Matriz de Habilidades y Consultas Predefinidas (Tools SIGECOF)
+                    </h3>
+                    <span style={{ fontSize: '12px', color: '#64748B' }}>
+                      Control de acceso seguro a consultas predefinidas de solo lectura. ICHI nunca ejecuta SQL directo ni libre.
+                    </span>
+                  </div>
+                </div>
+
+                <span style={{
+                  fontSize: '11px',
+                  fontWeight: '700',
+                  color: '#059669',
+                  background: '#ECFDF5',
+                  padding: '4px 10px',
+                  borderRadius: '12px',
+                  border: '1px solid #A7F3D0'
+                }}>
+                  {ichiTools.length} de 5 Habilitadas
+                </span>
+              </div>
+
+              {/* Lista de Herramientas Predefinidas */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '18px' }}>
+                {[
+                  {
+                    id: 'consultar_resumen_banco',
+                    nombre: 'Balance de Recaudación por Banco',
+                    fuente: 'ORACLE SIGECOF',
+                    fuenteBg: '#EFF6FF',
+                    fuenteColor: '#0284C7',
+                    fuenteBorder: '#BFDBFE',
+                    desc: 'Totales de lotes, planillas y montos recaudados en el año actual (ORG_LIQ.LOTE).'
+                  },
+                  {
+                    id: 'consultar_planillas_pendientes',
+                    nombre: 'Lotes y Planillas Pendientes',
+                    fuente: 'ORACLE SIGECOF',
+                    fuenteBg: '#EFF6FF',
+                    fuenteColor: '#0284C7',
+                    fuenteBorder: '#BFDBFE',
+                    desc: 'Identificación de expedientes y planillas pendientes de conciliar con límite parametrizado.'
+                  },
+                  {
+                    id: 'consultar_estado_motor',
+                    nombre: 'Diagnóstico en Vivo del Motor de Conciliación',
+                    fuente: 'POSTGRES / LOCAL',
+                    fuenteBg: '#F5F3FF',
+                    fuenteColor: '#7C3AED',
+                    fuenteBorder: '#DDD6FE',
+                    desc: 'Estado del proceso en tiempo real, mutex de base de datos y garantía de no-concurrencia.'
+                  },
+                  {
+                    id: 'consultar_expediente',
+                    nombre: 'Búsqueda Específica de Expediente / Planilla',
+                    fuente: 'ORACLE SIGECOF',
+                    fuenteBg: '#EFF6FF',
+                    fuenteColor: '#0284C7',
+                    fuenteBorder: '#BFDBFE',
+                    desc: 'Detalle individual de número de expediente o planilla en ORG_LIQ.PLANILLA.'
+                  },
+                  {
+                    id: 'consultar_formas_excluidas',
+                    nombre: 'Auditoría de Formas Excluidas / Sin Mapeo',
+                    fuente: 'CATÁLOGO :3000',
+                    fuenteBg: '#ECFDF5',
+                    fuenteColor: '#059669',
+                    fuenteBorder: '#A7F3D0',
+                    desc: 'Verificación de formas sin reglas contables en el catálogo centralizado de partidas.'
+                  }
+                ].map((tool) => {
+                  const isEnabled = ichiTools.includes(tool.id);
+                  return (
+                    <div
+                      key={tool.id}
+                      onClick={() => toggleIchiTool(tool.id)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '12px 14px',
+                        borderRadius: '8px',
+                        border: `1px solid ${isEnabled ? '#CBD5E1' : '#E2E8F0'}`,
+                        background: isEnabled ? '#FFFFFF' : '#F8FAFC',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <div style={{ flex: 1, paddingRight: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                          <span style={{ fontSize: '13px', fontWeight: '700', color: isEnabled ? '#0F172A' : '#94A3B8' }}>
+                            {tool.nombre}
+                          </span>
+                          <span style={{
+                            fontSize: '10px',
+                            fontWeight: '700',
+                            background: tool.fuenteBg,
+                            color: tool.fuenteColor,
+                            border: `1px solid ${tool.fuenteBorder}`,
+                            padding: '2px 6px',
+                            borderRadius: '4px'
+                          }}>
+                            {tool.fuente}
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '11.5px', color: isEnabled ? '#64748B' : '#94A3B8', display: 'block' }}>
+                          {tool.desc}
+                        </span>
+                      </div>
+
+                      {/* Switch Visual */}
+                      <div style={{
+                        width: '40px',
+                        height: '22px',
+                        borderRadius: '12px',
+                        background: isEnabled ? '#0284C7' : '#CBD5E1',
+                        position: 'relative',
+                        transition: 'background 0.2s ease',
+                        flexShrink: 0
+                      }}>
+                        <div style={{
+                          width: '16px',
+                          height: '16px',
+                          borderRadius: '50%',
+                          background: '#FFFFFF',
+                          position: 'absolute',
+                          top: '3px',
+                          left: isEnabled ? '21px' : '3px',
+                          transition: 'left 0.2s ease',
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                        }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{ fontSize: '11.5px', color: '#64748B', background: '#F8FAFC', padding: '10px 14px', borderRadius: '6px', border: '1px solid #E2E8F0' }}>
+                🔒 <strong>Aislamiento de Producción:</strong> Cada consulta está precompilada con timeout de 3.5s y límite forzado. ICHI no puede ejecutar INSERT, UPDATE, DELETE ni sentencias DDL.
+              </div>
+            </div>
+
+            {/* TARJETA 4: DIRECTRICES Y FORMATO DE RESPUESTAS FINANCIERAS */}
+            <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '10px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                <div style={{ background: '#F5F3FF', padding: '8px', borderRadius: '8px', border: '1px solid #DDD6FE' }}>
+                  <Sliders style={{ width: '20px', height: '20px', color: '#7C3AED' }} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '16px', fontWeight: '700', color: '#0F172A', margin: 0 }}>
+                    Directrices y Formato de Salida
+                  </h3>
+                  <span style={{ fontSize: '12px', color: '#64748B' }}>
+                    Reglas estrictas para que ICHI responda de forma limpia y ordenada.
+                  </span>
+                </div>
+              </div>
+
+              {/* Opciones de Formato */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '18px' }}>
+                
+                {/* Switch Formato Tabular */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                  <div>
+                    <strong style={{ fontSize: '12.5px', color: '#1E293B', display: 'block' }}>Formato Tabular Forzado</strong>
+                    <span style={{ fontSize: '11px', color: '#64748B' }}>Estructurar métricas financieras en tablas Markdown.</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={ichiFormatTabular}
+                    onChange={(e) => setIchiFormatTabular(e.target.checked)}
+                    style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#0284C7' }}
+                  />
+                </div>
+
+                {/* Switch Formato Moneda Bs. */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                  <div>
+                    <strong style={{ fontSize: '12.5px', color: '#1E293B', display: 'block' }}>Moneda Oficial en Bolívares</strong>
+                    <span style={{ fontSize: '11px', color: '#64748B' }}>Representación estándar (ej. Bs. 1.234.567,89).</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={ichiFormatCurrency}
+                    onChange={(e) => setIchiFormatCurrency(e.target.checked)}
+                    style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#0284C7' }}
+                  />
+                </div>
+
+                {/* Switch Modo Resumen Ejecutivo */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                  <div>
+                    <strong style={{ fontSize: '12.5px', color: '#1E293B', display: 'block' }}>Modo Resumen Ejecutivo</strong>
+                    <span style={{ fontSize: '11px', color: '#64748B' }}>Respuestas concisas sin preámbulos conversacionales.</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={ichiFormatExecutive}
+                    onChange={(e) => setIchiFormatExecutive(e.target.checked)}
+                    style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#0284C7' }}
+                  />
+                </div>
+
+                {/* Selector Límite de Registros */}
+                <div style={{ padding: '10px 12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
+                    Límite Máximo de Registros por Consulta:
+                  </label>
+                  <select
+                    value={ichiMaxRecords}
+                    onChange={(e) => setIchiMaxRecords(Number(e.target.value))}
+                    style={{
+                      width: '100%',
+                      height: '36px',
+                      padding: '0 10px',
+                      fontSize: '12.5px',
+                      borderRadius: '6px',
+                      border: '1px solid #CBD5E1',
+                      background: '#FFFFFF'
+                    }}
+                  >
+                    <option value={5}>5 Registros (Ultra rápido)</option>
+                    <option value={10}>10 Registros (Recomendado)</option>
+                    <option value={25}>25 Registros (Detallado)</option>
+                    <option value={50}>50 Registros (Máximo permitido)</option>
+                  </select>
+                </div>
+
+              </div>
+
+              <button
+                type="button"
+                onClick={handleGuardarConfigIchi}
+                style={{
+                  width: '100%',
+                  height: '40px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  background: '#0284C7',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  borderRadius: '7px',
+                  fontSize: '13px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 4px rgba(2, 132, 199, 0.2)'
+                }}
+              >
+                <Save style={{ width: '15px', height: '15px' }} />
+                Guardar Habilidades y Directrices de ICHI
+              </button>
+            </div>
+
           </div>
 
           {/* BANCO DE PRUEBAS EN VIVO DE ICHI (PLAYGROUND) */}

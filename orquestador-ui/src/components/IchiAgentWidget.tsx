@@ -109,13 +109,62 @@ export const IchiAgentWidget: React.FC<IchiAgentWidgetProps> = ({
       agent._renderChips();
     }
 
-    // Resolver interactivo con respuestas contextuales del ecosistema SENIAT / ONT
+    // Resolver conectado al Gateway de herramientas predefinidas de SIGECOF
     agent.resolver = async (pregunta: string) => {
       const q = String(pregunta || '').toLowerCase().trim();
 
-      // Simular latencia de inferencia de IA (800ms)
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      try {
+        // Cargar herramientas habilitadas y opciones de formato desde localStorage
+        let enabledTools: string[] = [
+          'consultar_resumen_banco',
+          'consultar_planillas_pendientes',
+          'consultar_estado_motor',
+          'consultar_expediente',
+          'consultar_formas_excluidas',
+        ];
+        try {
+          const savedTools = localStorage.getItem('ichi_tools');
+          if (savedTools) enabledTools = JSON.parse(savedTools);
+        } catch (e) {}
 
+        const formatOptions = {
+          tabular: localStorage.getItem('ichi_format_tabular') !== 'false',
+          currency: localStorage.getItem('ichi_format_currency') !== 'false',
+          executive: localStorage.getItem('ichi_format_executive') === 'true',
+          maxRecords: Number(localStorage.getItem('ichi_max_records')) || 10,
+        };
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 7000);
+
+        const resp = await fetch('/api/orquestador/ichi/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pregunta,
+            context: agent.getAttribute('context') || context,
+            enabledTools,
+            formatOptions,
+          }),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data && data.text) {
+            return {
+              text: data.text,
+              note: data.note || 'Gateway ONT · Consulta Predefinida',
+            };
+          }
+        }
+      } catch (err) {
+        console.warn('[ICHI] Backend no disponible o tiempo de espera agotado, usando router local:', err);
+      }
+
+      // Fallback local heurístico si la red o API no responde
       if (/pendient|lote|faltant|cu[aá]ntas planillas/.test(q)) {
         return {
           text: 'Actualmente el motor financiero mantiene planillas pendientes en los lotes con estado "P". Puedes conciliar masivamente por lote o seleccionar expedientes específicos como el 7638.',
@@ -158,7 +207,6 @@ export const IchiAgentWidget: React.FC<IchiAgentWidgetProps> = ({
         };
       }
 
-      // Respuesta genérica inteligente
       return {
         text: `Comprendo tu consulta sobre "${pregunta}". Puedo analizar el estado de los lotes presupuestarios, explicar la imputación de formas tributarias o consultar eventos de auditoría. ¿Deseas que profundicemos en algún lote o expediente en particular?`,
         note: `Contexto activo: ${agent.getAttribute('context') || 'General'}`,
