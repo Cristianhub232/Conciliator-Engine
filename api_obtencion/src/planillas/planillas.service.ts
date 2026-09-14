@@ -1888,7 +1888,13 @@ export class PlanillasService {
     const search = dto.search ? dto.search.trim() : '';
 
     const binds: any = { anho, limit };
-    let whereClauses = `WHERE W.ORGA_ID = '93' AND W.WFTA_TAREA_ID = 2061 AND W.ANHO = :anho`;
+    let whereClauses = `WHERE W.ORGA_ID = '93' AND W.WFTA_TAREA_ID = 2061 AND W.ANHO = :anho AND W.WORKITEM = (
+      SELECT MAX(W2.WORKITEM)
+      FROM WFE_WORKFLOW.WF_WORK_ITEM W2
+      WHERE W2.WFEX_EXP_ID = W.WFEX_EXP_ID
+        AND W2.ANHO = W.ANHO
+        AND W2.ORGA_ID = W.ORGA_ID
+    )`;
 
     if (usuarioOrigen && usuarioOrigen !== 'TODOS') {
       whereClauses += ` AND UPPER(W.WFUS_USERS_ID) = UPPER(:usuarioOrigen)`;
@@ -1962,6 +1968,13 @@ export class PlanillasService {
         AND W.WFTA_TAREA_ID = 2061
         AND W.WI_ESTADO = 'ABIERTA'
         AND W.ANHO = :anho
+        AND W.WORKITEM = (
+          SELECT MAX(W2.WORKITEM)
+          FROM WFE_WORKFLOW.WF_WORK_ITEM W2
+          WHERE W2.WFEX_EXP_ID = W.WFEX_EXP_ID
+            AND W2.ANHO = W.ANHO
+            AND W2.ORGA_ID = W.ORGA_ID
+        )
     `;
     let kpiData = { TOTAL_EXPEDIENTES_ABIERTA: 0, TOTAL_GILLIAMS_ABIERTA: 0 };
     try {
@@ -2041,6 +2054,13 @@ export class PlanillasService {
         WHERE WI.ORGA_ID = '93'
           AND WI.WFTA_TAREA_ID = 2061
           AND WI.WI_ESTADO IN ('ABIERTA', 'PENDIENTE')
+          AND WI.WORKITEM = (
+            SELECT MAX(W2.WORKITEM)
+            FROM WFE_WORKFLOW.WF_WORK_ITEM W2
+            WHERE W2.WFEX_EXP_ID = WI.WFEX_EXP_ID
+              AND W2.ANHO = WI.ANHO
+              AND W2.ORGA_ID = WI.ORGA_ID
+          )
         GROUP BY WI.WFUS_USERS_ID
       ) CARGA ON CARGA.WFUS_USERS_ID = U.USERS_ID
       WHERE U.USERS_STATUS = 'A'
@@ -2150,25 +2170,29 @@ export class PlanillasService {
             descripcionWi = `REASIGNACION - Banco: ${bancoLote} Dia: ${fechaLote}`;
           }
 
-          // A) Cerrar el WorkItem activo anterior
+          // A) Intentar formalizar el cierre del WorkItem activo anterior en Oracle
           if (currentWiNum && activeWi?.WI_ESTADO !== 'CERRADA') {
-            await writeConn.execute(
-              `UPDATE WFE_WORKFLOW.WF_WORK_ITEM
-               SET WI_ESTADO = 'CERRADA',
-                   WI_FECHA_CIERRE = SYSDATE,
-                   WI_OBSERVACION = NVL(:obs, WI_OBSERVACION)
-               WHERE WFEX_EXP_ID = :expNum
-                 AND ANHO = :anhoNum
-                 AND ORGA_ID = '93'
-                 AND WORKITEM = :currentWiNum`,
-              {
-                expNum,
-                anhoNum,
-                currentWiNum,
-                obs: `Cerrado por reasignación de carga hacia ${targetUserData.USERS_ID}`,
-              },
-              { autoCommit: false },
-            );
+            try {
+              await writeConn.execute(
+                `UPDATE WFE_WORKFLOW.WF_WORK_ITEM
+                 SET WI_ESTADO = 'CERRADA',
+                     WI_FECHA_CIERRE = SYSDATE,
+                     WI_OBSERVACION = NVL(:obs, WI_OBSERVACION)
+                 WHERE WFEX_EXP_ID = :expNum
+                   AND ANHO = :anhoNum
+                   AND ORGA_ID = '93'
+                   AND WORKITEM = :currentWiNum`,
+                {
+                  expNum,
+                  anhoNum,
+                  currentWiNum,
+                  obs: `Cerrado por reasignación de carga hacia ${targetUserData.USERS_ID}`,
+                },
+                { autoCommit: false },
+              );
+            } catch (updateErr: any) {
+              this.logger.warn(`Aviso al actualizar WI actual ${currentWiNum} a CERRADA en exp ${expNum}: ${updateErr.message}`);
+            }
           }
 
           // B) Insertar el nuevo WorkItem en estado 'PENDIENTE' para el nuevo transcriptor
