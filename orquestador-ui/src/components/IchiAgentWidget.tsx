@@ -134,6 +134,13 @@ export const IchiAgentWidget: React.FC<IchiAgentWidgetProps> = ({
           maxRecords: Number(localStorage.getItem('ichi_max_records')) || 10,
         };
 
+        const llmConfig = {
+          provider: localStorage.getItem('ichi_llm_provider') || 'deepseek',
+          model: localStorage.getItem('ichi_model_name') || currentModel || 'deepseek-chat',
+          baseUrl: localStorage.getItem('ichi_api_url') || '',
+          temperature: parseFloat(localStorage.getItem('ichi_temperature') || '0.3'),
+        };
+
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 7000);
 
@@ -145,6 +152,7 @@ export const IchiAgentWidget: React.FC<IchiAgentWidgetProps> = ({
             context: agent.getAttribute('context') || context,
             enabledTools,
             formatOptions,
+            llmConfig,
           }),
           signal: controller.signal,
         });

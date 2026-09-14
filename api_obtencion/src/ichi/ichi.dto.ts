@@ -5,6 +5,14 @@ export class IchiChatFormatOptionsDto {
   maxRecords?: number;
 }
 
+export class IchiLlmConfigDto {
+  provider?: string;
+  model?: string;
+  apiKey?: string;
+  baseUrl?: string;
+  temperature?: number;
+}
+
 export class IchiChatDto {
   pregunta!: string;
   context?: string;
@@ -12,6 +20,7 @@ export class IchiChatDto {
   fecha?: string;
   enabledTools?: string[];
   formatOptions?: IchiChatFormatOptionsDto;
+  llmConfig?: IchiLlmConfigDto;
 }
 
 export class IchiExecuteToolDto {

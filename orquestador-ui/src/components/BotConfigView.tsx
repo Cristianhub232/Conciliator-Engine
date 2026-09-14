@@ -315,6 +315,13 @@ export const BotConfigView: React.FC = () => {
             currency: ichiFormatCurrency,
             executive: ichiFormatExecutive,
             maxRecords: ichiMaxRecords
+          },
+          llmConfig: {
+            provider: ichiProvider,
+            model: ichiModel,
+            baseUrl: ichiBaseUrl,
+            apiKey: ichiApiKey,
+            temperature: parseFloat(ichiTemperature) || 0.3
           }
         })
       });

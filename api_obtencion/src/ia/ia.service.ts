@@ -356,4 +356,104 @@ Responde ÚNICAMENTE con el objeto JSON válido, sin delimitadores de markdown.`
 
     return { accion: 'desconocido', interpretacion: 'No se identificaron parámetros claros de conciliación' };
   }
+
+  /**
+   * Genera texto libre utilizando el proveedor activo o parámetros suministrados
+   */
+  public async generarTexto(
+    systemPrompt: string,
+    userPrompt: string,
+    options?: {
+      providerOverride?: 'deepseek' | 'anthropic' | 'google';
+      apiKeyOverride?: string;
+      baseUrlOverride?: string;
+      modelOverride?: string;
+      temperature?: number;
+    }
+  ): Promise<string> {
+    const provider = options?.providerOverride || this.config.activeProvider;
+    const conf = {
+      apiKey: options?.apiKeyOverride || this.config.providers[provider]?.apiKey || '',
+      baseUrl: options?.baseUrlOverride || this.config.providers[provider]?.baseUrl || '',
+      model: options?.modelOverride || this.config.providers[provider]?.model || '',
+    };
+
+    if (!conf.apiKey) {
+      throw new Error(`No hay API Key configurada para el proveedor ${provider}`);
+    }
+
+    const temp = options?.temperature ?? 0.3;
+
+    if (provider === 'deepseek') {
+      const url = conf.baseUrl.endsWith('/chat/completions')
+        ? conf.baseUrl
+        : `${conf.baseUrl.replace(/\/$/, '')}/chat/completions`;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${conf.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: conf.model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: temp,
+        }),
+      });
+      if (!resp.ok) {
+        const errTxt = await resp.text();
+        throw new Error(`DeepSeek HTTP ${resp.status}: ${errTxt}`);
+      }
+      const data = await resp.json();
+      return data.choices?.[0]?.message?.content || '';
+    } else if (provider === 'anthropic') {
+      const url = conf.baseUrl.endsWith('/messages')
+        ? conf.baseUrl
+        : `${conf.baseUrl.replace(/\/$/, '')}/messages`;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': conf.apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: conf.model,
+          max_tokens: 1500,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+          temperature: temp,
+        }),
+      });
+      if (!resp.ok) {
+        const errTxt = await resp.text();
+        throw new Error(`Anthropic HTTP ${resp.status}: ${errTxt}`);
+      }
+      const data = await resp.json();
+      return data.content?.[0]?.text || '';
+    } else if (provider === 'google') {
+      const cleanBase = conf.baseUrl.replace(/\/$/, '');
+      const url = `${cleanBase}/models/${conf.model}:generateContent?key=${conf.apiKey}`;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+          generationConfig: { temperature: temp },
+        }),
+      });
+      if (!resp.ok) {
+        const errTxt = await resp.text();
+        throw new Error(`Google Gemini HTTP ${resp.status}: ${errTxt}`);
+      }
+      const data = await resp.json();
+      return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    }
+
+    throw new Error(`Proveedor no soportado: ${provider}`);
+  }
 }
