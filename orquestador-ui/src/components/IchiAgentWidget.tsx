@@ -138,6 +138,7 @@ export const IchiAgentWidget: React.FC<IchiAgentWidgetProps> = ({
           provider: localStorage.getItem('ichi_llm_provider') || 'deepseek',
           model: localStorage.getItem('ichi_model_name') || currentModel || 'deepseek-chat',
           baseUrl: localStorage.getItem('ichi_api_url') || '',
+          apiKey: localStorage.getItem('ichi_api_key') || '',
           temperature: parseFloat(localStorage.getItem('ichi_temperature') || '0.3'),
         };
 

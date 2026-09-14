@@ -198,6 +198,9 @@ export const BotConfigView: React.FC = () => {
         const savedIchiUrl = localStorage.getItem('ichi_api_url');
         if (savedIchiUrl) setIchiBaseUrl(savedIchiUrl);
 
+        const savedIchiKey = localStorage.getItem('ichi_api_key');
+        if (savedIchiKey) setIchiApiKey(savedIchiKey);
+
         const savedIchiGreeting = localStorage.getItem('ichi_greeting');
         if (savedIchiGreeting) setIchiGreeting(savedIchiGreeting);
 
@@ -258,12 +261,16 @@ export const BotConfigView: React.FC = () => {
   };
 
   // Guardar configuración del modelo de ICHI
-  const handleGuardarConfigIchi = () => {
+  const handleGuardarConfigIchi = async () => {
+    setSaving(true);
+    setFeedback(null);
     try {
       localStorage.setItem('ichi_enabled', isIchiActive ? 'true' : 'false');
       localStorage.setItem('ichi_model_name', ichiModel);
       localStorage.setItem('ichi_llm_provider', ichiProvider);
       localStorage.setItem('ichi_api_url', ichiBaseUrl);
+      localStorage.setItem('ichi_api_key', ichiApiKey);
+      localStorage.setItem(`ichi_api_key_${ichiProvider}`, ichiApiKey);
       localStorage.setItem('ichi_greeting', ichiGreeting);
       localStorage.setItem('ichi_temperature', ichiTemperature);
       localStorage.setItem('ichi_system_prompt', ichiSystemPrompt);
@@ -275,17 +282,41 @@ export const BotConfigView: React.FC = () => {
       localStorage.setItem('ichi_format_executive', ichiFormatExecutive ? 'true' : 'false');
       localStorage.setItem('ichi_max_records', String(ichiMaxRecords));
 
+      // Sincronizar también con el Backend para que el motor y la API dispongan de la clave
+      if (['deepseek', 'anthropic', 'google'].includes(ichiProvider) && ichiApiKey) {
+        try {
+          await fetch('/api/orquestador/bot-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              iaActiveProvider: ichiProvider,
+              providers: {
+                [ichiProvider]: {
+                  apiKey: ichiApiKey,
+                  baseUrl: ichiBaseUrl,
+                  model: ichiModel
+                }
+              }
+            })
+          });
+        } catch (backendErr) {
+          console.warn('Aviso: no se pudo sincronizar clave con el backend:', backendErr);
+        }
+      }
+
       window.dispatchEvent(new Event('ichi_status_changed'));
 
       setFeedback({
         tipo: 'exito',
-        texto: `Configuración y Habilidades de ICHI guardadas exitosamente. Modelo: ${ichiModel} (${ichiProvider.toUpperCase()}) con ${ichiTools.length} consultas predefinidas habilitadas.`
+        texto: `✓ Configuración y API Key de ICHI (${ichiProvider.toUpperCase()}) guardadas exitosamente y sincronizadas con el motor.`
       });
     } catch (e: any) {
       setFeedback({
         tipo: 'error',
         texto: `Error guardando configuración de ICHI: ${e.message}`
       });
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -794,6 +825,8 @@ export const BotConfigView: React.FC = () => {
                       setIchiProvider(prov.id as any);
                       setIchiModel(prov.modelDef);
                       setIchiBaseUrl(prov.urlDef);
+                      const provKey = localStorage.getItem(`ichi_api_key_${prov.id}`) || localStorage.getItem('ichi_api_key') || '';
+                      if (provKey) setIchiApiKey(provKey);
                     }}
                     style={{
                       flex: 1,
@@ -947,6 +980,7 @@ export const BotConfigView: React.FC = () => {
               <button
                 type="button"
                 onClick={handleGuardarConfigIchi}
+                disabled={saving}
                 style={{
                   width: '100%',
                   height: '40px',
@@ -960,11 +994,20 @@ export const BotConfigView: React.FC = () => {
                   borderRadius: '7px',
                   fontSize: '13px',
                   fontWeight: '700',
-                  cursor: 'pointer'
+                  cursor: saving ? 'not-allowed' : 'pointer'
                 }}
               >
-                <Save style={{ width: '15px', height: '15px' }} />
-                Guardar Especificación de Modelo para ICHI
+                {saving ? (
+                  <>
+                    <RefreshCw style={{ width: '15px', height: '15px', animation: 'spin 1s linear infinite' }} />
+                    Guardando Configuración...
+                  </>
+                ) : (
+                  <>
+                    <Save style={{ width: '15px', height: '15px' }} />
+                    Guardar Especificación de Modelo para ICHI
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -1213,6 +1256,7 @@ export const BotConfigView: React.FC = () => {
               <button
                 type="button"
                 onClick={handleGuardarConfigIchi}
+                disabled={saving}
                 style={{
                   width: '100%',
                   height: '40px',
@@ -1226,12 +1270,21 @@ export const BotConfigView: React.FC = () => {
                   borderRadius: '7px',
                   fontSize: '13px',
                   fontWeight: '700',
-                  cursor: 'pointer',
+                  cursor: saving ? 'not-allowed' : 'pointer',
                   boxShadow: '0 2px 4px rgba(2, 132, 199, 0.2)'
                 }}
               >
-                <Save style={{ width: '15px', height: '15px' }} />
-                Guardar Habilidades y Directrices de ICHI
+                {saving ? (
+                  <>
+                    <RefreshCw style={{ width: '15px', height: '15px', animation: 'spin 1s linear infinite' }} />
+                    Guardando Habilidades...
+                  </>
+                ) : (
+                  <>
+                    <Save style={{ width: '15px', height: '15px' }} />
+                    Guardar Habilidades y Directrices de ICHI
+                  </>
+                )}
               </button>
             </div>
 
