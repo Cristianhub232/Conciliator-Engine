@@ -143,7 +143,7 @@ export const IchiAgentWidget: React.FC<IchiAgentWidgetProps> = ({
         };
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 7000);
+        const timeoutId = setTimeout(() => controller.abort(), 40000);
 
         const resp = await fetch('/api/orquestador/ichi/chat', {
           method: 'POST',

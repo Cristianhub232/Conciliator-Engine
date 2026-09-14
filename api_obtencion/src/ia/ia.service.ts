@@ -110,6 +110,21 @@ export class IaService {
   }
 
   /**
+   * Obtiene la API Key real para uso interno exclusivo del backend
+   */
+  public getRawApiKey(provider: 'deepseek' | 'anthropic' | 'google' = 'deepseek'): string {
+    return this.config.providers[provider]?.apiKey || '';
+  }
+
+  public getActiveProvider(): 'deepseek' | 'anthropic' | 'google' {
+    return this.config.activeProvider;
+  }
+
+  public getProviderConfig(provider: 'deepseek' | 'anthropic' | 'google' = 'deepseek') {
+    return this.config.providers[provider];
+  }
+
+  /**
    * Interpreta petición del usuario usando el proveedor activo o fallback heurístico
    */
   async interpretarPeticion(texto: string): Promise<{

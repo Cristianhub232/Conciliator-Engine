@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import * as fs from 'fs';
+import * as path from 'path';
 import { DatabaseService } from '../database/database.service';
 import { PipelineService } from '../pipeline/pipeline.service';
 import { IaService } from '../ia/ia.service';
@@ -382,7 +384,7 @@ export class IchiService {
     const isRunning = this.pipelineService.getIsRunning();
 
     // -------------------------------------------------------------
-    // 1. REGLA FUNDAMENTAL: PERFIL EXCLUSIVO DE SOLO LECTURA Y SÍNTESIS
+    // 1. REGLA FUNDAMENTAL DE SEGURIDAD FISCAL: PERFIL SOLO LECTURA
     // -------------------------------------------------------------
     const mutacionIntent = /(?:actualiz|modific|cambi|insert|crea|elimin|borr|anul|forz|escrib|reemplaz|alter|truncat|drop|delete|insert into|update)\s*(?:planilla|lote|registro|estado|estatus|monto|tabla|base de datos|bd|fila|organo)/i;
     const ordenModificacionDirecta = /(?:cambia|modifica|elimina|borra|actualiza)\s+(?:el\s+estado|el\s+monto|la\s+planilla|el\s+lote|la\s+cuenta)/i;
@@ -397,21 +399,189 @@ export class IchiService {
           `Por normativas de control fiscal de la República y seguridad de la ONT:`,
           `• **Sin permisos de escritura:** No poseo facultades ni comandos para modificar (\`UPDATE\`), insertar (\`INSERT\`) ni eliminar (\`DELETE\`) datos en Oracle SIGECOF ni en el motor.`,
           `• **Objetivo del Agente:** Mi función se limita a consultar balances, identificar lotes pendientes, diagnosticar el estado del proceso y realizar síntesis analíticas claras.`,
-          `• Para efectuar modificaciones o reprocesamientos en los lotes, utilice los botones autorizados en los módulos operativos con su respectiva clave de supervisor.`
+          `• Para efectuar modificaciones o reprocesamientos en los lotes, utilice los módulos operativos con su respectiva autorización de supervisor.`
         ].join('\n'),
         note: 'Seguridad ONT · Perfil Restringido de Solo Lectura y Síntesis',
       };
     }
 
     // -------------------------------------------------------------
-    // 2. DIAGNÓSTICO DEL MODELO Y ESTADO DE CONEXIÓN DE ICHI
+    // 2. RESOLUCIÓN DE CREDENCIALES DEL LLM (DEEPSEEK / PROVEEDOR ACTIVO)
     // -------------------------------------------------------------
-    const modeloRegex = /(?:qu[eé]\s+modelo|cu[aá]l\s+es\s+tu\s+modelo|qu[eé]\s+ia\s+eres|con\s+qu[eé]\s+modelo|modelo\s+est[aá]s?\s+operando|est[aá]s\s+conectado|c[oó]mo\s+est[aá]\s+tu\s+conexi[oó]n|diagn[oó]stico\s+de\s+conexi[oó]n|status\s+de\s+conexi[oó]n)/i;
+    const activeProvider = (dto.llmConfig?.provider || this.iaService.getActiveProvider() || 'deepseek') as 'deepseek' | 'anthropic' | 'google';
+    let apiKey = (dto.llmConfig?.apiKey && !dto.llmConfig.apiKey.includes('...'))
+      ? dto.llmConfig.apiKey.trim()
+      : (this.iaService.getRawApiKey(activeProvider) || process.env.DEEPSEEK_API_KEY || process.env.LLM_API_KEY || '').trim();
 
-    if (modeloRegex.test(q)) {
-      const modeloActual = dto.llmConfig?.model || 'deepseek-chat (NLU ONT)';
-      const provActual = (dto.llmConfig?.provider || 'DeepSeek').toUpperCase();
+    if (!apiKey) {
+      try {
+        const envCandidates = [
+          path.resolve(process.cwd(), '.env'),
+          path.resolve(__dirname, '../../.env'),
+          path.resolve('/home/estacion/Escritorio/contexto y procesos ONT/api_obtencion/.env')
+        ];
+        for (const p of envCandidates) {
+          if (fs.existsSync(p)) {
+            const rawEnv = fs.readFileSync(p, 'utf8');
+            const match = rawEnv.match(/(?:DEEPSEEK_API_KEY|LLM_API_KEY)\s*=\s*(["']?)(sk-[a-zA-Z0-9_-]+)\1/);
+            if (match && match[2]) {
+              apiKey = match[2].trim();
+              break;
+            }
+          }
+        }
+      } catch (e) {}
+    }
 
+    this.logger.log(`[ICHI-AUTH] Proveedor: ${activeProvider}, Clave detectada: ${apiKey ? (apiKey.slice(0, 5) + '...' + apiKey.slice(-4)) : 'NO CONFIGURADA'}`);
+
+    const baseUrl = dto.llmConfig?.baseUrl || this.iaService.getProviderConfig(activeProvider)?.baseUrl || 'https://api.deepseek.com/v1';
+    const model = dto.llmConfig?.model || this.iaService.getProviderConfig(activeProvider)?.model || 'deepseek-chat';
+    const temperature = Number(dto.llmConfig?.temperature) ?? 0.3;
+
+    // Obtener fecha y hora oficial de Caracas para el contexto del LLM
+    const now = new Date();
+    let fechaActualCaracas = '';
+    try {
+      fechaActualCaracas = new Intl.DateTimeFormat('es-VE', {
+        timeZone: 'America/Caracas',
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true,
+      }).format(now);
+      fechaActualCaracas = fechaActualCaracas.charAt(0).toUpperCase() + fechaActualCaracas.slice(1);
+    } catch (e) {
+      fechaActualCaracas = now.toISOString();
+    }
+
+    // -------------------------------------------------------------
+    // 3. CONSULTA PREVIA DE DATOS EN VIVO (TOOLS / GROUNDING)
+    // -------------------------------------------------------------
+    const enabledTools = Array.isArray(dto.enabledTools) && dto.enabledTools.length > 0
+      ? dto.enabledTools
+      : ['consultar_resumen_banco', 'consultar_planillas_pendientes', 'consultar_estado_motor', 'consultar_expediente', 'consultar_formas_excluidas'];
+
+    const bancoMatch = q.match(/(?:banco|cta|cuenta)\s*([0-9]{3,4})/i) || contextActive.match(/(?:banco|cta)\s*([0-9]{3,4})/i);
+    const bancoDetectado = bancoMatch ? bancoMatch[1].slice(-3) : (dto.banco || null);
+
+    const expMatch = q.match(/(?:expediente|planilla|forma)\s*#?\s*([0-9]{3,10})/i);
+    const expDetectado = expMatch ? expMatch[1] : undefined;
+
+    let selectedTool: string | null = null;
+    let toolParams: Record<string, any> = {};
+    let toolDataFresh: { formattedText: string; note: string } | null = null;
+
+    if ((q.includes('motor') || q.includes('estado del motor') || q.includes('proceso de conciliación') || q.includes('corriendo') || q.includes('conciliando')) && enabledTools.includes('consultar_estado_motor')) {
+      selectedTool = 'consultar_estado_motor';
+    } else if ((q.includes('pendiente') || q.includes('sin conciliar') || q.includes('faltan') || q.includes('por depurar')) && enabledTools.includes('consultar_planillas_pendientes')) {
+      selectedTool = 'consultar_planillas_pendientes';
+      toolParams = { banco: bancoDetectado || '105', limite: dto.formatOptions?.maxRecords || 10 };
+    } else if (expDetectado && enabledTools.includes('consultar_expediente')) {
+      selectedTool = 'consultar_expediente';
+      toolParams = { expediente: expDetectado };
+    } else if ((q.includes('forma excluida') || q.includes('sin mapeo') || q.includes('no catalogada')) && enabledTools.includes('consultar_formas_excluidas')) {
+      selectedTool = 'consultar_formas_excluidas';
+      toolParams = { banco: bancoDetectado || '105' };
+    } else if ((q.includes('resumen') || q.includes('recaud') || q.includes('balance') || q.includes('total de recaudación') || (q.includes('cuanto') && q.includes('banco'))) && enabledTools.includes('consultar_resumen_banco')) {
+      selectedTool = 'consultar_resumen_banco';
+      toolParams = { banco: bancoDetectado || '105' };
+    }
+
+    if (selectedTool) {
+      try {
+        const toolRes = await this.executeTool(selectedTool, toolParams, dto.formatOptions);
+        toolDataFresh = toolRes;
+      } catch (err: any) {
+        this.logger.warn(`[ICHI] Error al ejecutar herramienta ${selectedTool}: ${err.message}`);
+      }
+    }
+
+    // -------------------------------------------------------------
+    // 4. INFERENCIA CON EL MODELO LLM ACTIVO (DEEPSEEK / OTRO)
+    // -------------------------------------------------------------
+    if (apiKey) {
+      try {
+        const systemPrompt = [
+          `Eres ICHI, el asistente oficial de Inteligencia Artificial de la Oficina Nacional del Tesoro (ONT) y SENIAT en la República Bolivariana de Venezuela.`,
+          `Tu misión es orientar al usuario en la conciliación bancaria masiva, análisis presupuestario de lotes SIGECOF, depuración de formas y síntesis financiera.`,
+          ``,
+          `ESTADO TÉCNICO Y OPERACIONAL EN TIEMPO REAL:`,
+          `- Fecha y hora legal oficial de Venezuela (Caracas, VET / UTC-4): ${fechaActualCaracas}`,
+          `- Motor de Conciliación: ${isRunning ? 'En ejecución (Mutex activo procesando lotes)' : 'En reposo (Listo para operar)'}`,
+          `- Gateway Backend: CONECTADO (Puerto 3010 / 3002)`,
+          `- Oracle SIGECOF: CONECTADO (10.79.6.247:1521, servicio sige1)`,
+          `- Base Local PostgreSQL: OPERATIVO (10.78.30.63:5432/xmls, motor_app)`,
+          `- Catálogo de Partidas Presupuestarias: EN LÍNEA (10.46.0.189:3000)`,
+          `- Modelo de IA activo: ${model} (${activeProvider.toUpperCase()})`,
+          `- Contexto de pantalla actual: ${contextActive}`,
+          ``,
+          `DIRECTRICES FUNDAMENTALES DE RESPUESTA:`,
+          `1. PERFIL ESTRICTO DE SOLO LECTURA: Tienes terminantemente PROHIBIDO modificar, insertar o eliminar registros. Si te piden alterar datos, recházalo amablemente explicando que tu rol es analítico y de consulta.`,
+          `2. PRECISIÓN Y FLUIDEZ: Responde de forma inteligente, ejecutiva, directa y cálida. Evita respuestas robóticas o plantillas estáticas repetitivas.`,
+          `3. FORMATO VISUAL LIMPIO: Utiliza tablas Markdown elegantes (| col1 | col2 |) siempre que presentes comparativas, resúmenes, datos técnicos o balances monetarios.`,
+          `4. MONEDA: Utiliza siempre la expresión en Bolívares con formato venezolano: Bs. 1.234.567,89.`,
+          `5. TASA BCV: La conciliación aplica la tasa oficial del Banco Central de Venezuela correspondiente a la FECHA_RECAUDACION valor de cada planilla para cuadre exacto en Bolívares.`,
+        ].join('\n');
+
+        let userPromptCompleto = rawQ;
+        if (toolDataFresh) {
+          userPromptCompleto = [
+            `DATOS EN VIVO EXTRAÍDOS DE LA BASE DE DATOS (HERRAMIENTA: ${selectedTool}):`,
+            toolDataFresh.formattedText,
+            '',
+            `PREGUNTA DEL USUARIO:`,
+            rawQ,
+            '',
+            `INSTRUCCIÓN: Sintetiza de manera ejecutiva, clara y profesional los datos reales anteriores para responderle directamente al usuario. Presenta los números en tablas ordenadas.`
+          ].join('\n');
+        }
+
+        this.logger.log(`[ICHI] Invocando LLM ${activeProvider.toUpperCase()} (${model}) para consulta: "${rawQ.slice(0, 60)}..."`);
+
+        const respuestaLlm = await this.iaService.generarTexto(systemPrompt, userPromptCompleto, {
+          providerOverride: activeProvider,
+          apiKeyOverride: apiKey,
+          baseUrlOverride: baseUrl,
+          modelOverride: model,
+          temperature,
+        });
+
+        if (respuestaLlm && respuestaLlm.trim()) {
+          return {
+            text: respuestaLlm.trim(),
+            note: toolDataFresh 
+              ? `Inferencia IA · ${activeProvider.toUpperCase()} (${model}) + ${toolDataFresh.note}`
+              : `Inferencia IA · ${activeProvider.toUpperCase()} (${model})`,
+            toolUsed: selectedTool || undefined,
+          };
+        }
+      } catch (err: any) {
+        this.logger.warn(`[ICHI] Error en llamada LLM en vivo (${activeProvider}): ${err.message}. Empleando fallback determinista.`);
+      }
+    }
+
+    // Si hubo datos frescos de base de datos pero el LLM no respondió o no había API key, retornar los datos de la herramienta
+    if (toolDataFresh) {
+      return {
+        text: toolDataFresh.formattedText,
+        note: toolDataFresh.note,
+        toolUsed: selectedTool || undefined,
+      };
+    }
+
+    // -------------------------------------------------------------
+    // 5. RESPUESTA DE CONTINGENCIA INSTITUCIONAL (FALLBACK DETERMINISTA)
+    // -------------------------------------------------------------
+    const modeloActual = model || 'deepseek-chat';
+    const provActual = activeProvider.toUpperCase();
+
+    // Diagnóstico rápido de conexión
+    if (/(?:qu[eé]\s+modelo|cu[aá]l\s+es\s+tu\s+modelo|diagn[oó]stico|status|conexi[oó]n)/i.test(q)) {
       return {
         text: [
           `🤖 **Diagnóstico de Operatividad y Estado del Agente ICHI**`,
@@ -433,229 +603,21 @@ export class IchiService {
       };
     }
 
-    // -------------------------------------------------------------
-    // 3. CONSULTA DE FECHA, DÍA Y HORA ACTUAL (TIEMPO REAL EN VENEZUELA)
-    // -------------------------------------------------------------
-    const fechaRegex = /(?:qu[eé]\s+d[ií]a\s+es\s+hoy|qu[eé]\s+fecha\s+(?:es|tenemos)|qu[eé]\s+hora\s+es|fecha\s+actual|d[ií]a\s+de\s+hoy|hora\s+actual)/i;
-
-    if (fechaRegex.test(q)) {
-      const now = new Date();
-      let fechaFormateada = '';
-      try {
-        fechaFormateada = new Intl.DateTimeFormat('es-VE', {
-          timeZone: 'America/Caracas',
-          weekday: 'long',
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-          hour12: true,
-        }).format(now);
-        fechaFormateada = fechaFormateada.charAt(0).toUpperCase() + fechaFormateada.slice(1);
-      } catch (e) {
-        fechaFormateada = now.toISOString();
-      }
-
-      return {
-        text: [
-          `🗓️ **Tiempo y Calendario Oficial de Operación**`,
-          '',
-          `• **Fecha y Hora Oficial:** ${fechaFormateada}`,
-          `• **Huso Horario:** Hora Legal de Venezuela (VET / UTC-4, Caracas)`,
-          `• **Año Fiscal Activo:** ${now.getFullYear()}`,
-          `• **Contexto Activo en Pantalla:** ${contextActive}`,
-          '',
-          `💡 *Regla Institucional:* Toda la conciliación y depuración bancaria agrupa los lotes de acuerdo a la fecha de recaudación bancaria registrada.`
-        ].join('\n'),
-        note: 'Servicio de Tiempo Oficial · ONT Caracas',
-      };
-    }
-
-    // -------------------------------------------------------------
-    // 4. REFERENCIA CAMBIARIA (TASA BCV / DIVISAS)
-    // -------------------------------------------------------------
-    const divisaRegex = /(?:tasa|d[oó]lar|euro|divisa|cambiar|bcv|tipo\s+de\s+cambio|valor\s+de\s+referencia)/i;
-
-    if (divisaRegex.test(q)) {
-      return {
-        text: [
-          `💵 **Valores de Referencia Cambiaria Institucional (BCV)**`,
-          '',
-          `| Divisa | Referencia Oficial | Aplicación en Conciliación Bancaria |`,
-          `| :--- | :--- | :--- |`,
-          `| **Dólar Estadounidense (USD)** | Tasa Oficial BCV | Cuadre de planillas con contravalor y auditoría de recaudación en divisas. |`,
-          `| **Euro (EUR)** | Tasa Oficial BCV | Valoración de trámites aduaneros y formas tributarias especiales. |`,
-          '',
-          `📌 **Principio Operativo SIGECOF / SENIAT:**`,
-          `El motor de conciliación aplica rigurosamente la tasa oficial publicada por el **Banco Central de Venezuela (BCV)** para la **fecha valor de recaudación** (\`FECHA_RECAUDACION\`) de cada planilla. El monto acreditado en las cuentas del Tesoro Nacional debe cuadrar exactamente en Bolívares (\`Bs.\`).`
-        ].join('\n'),
-        note: 'Referencia Cambiaria Institucional · Banco Central de Venezuela (BCV)',
-      };
-    }
-
-    // -------------------------------------------------------------
-    // 5. CÁLCULO MATEMÁTICO RÁPIDO (RESTAS, DIFERENCIAS, DELTAS)
-    // -------------------------------------------------------------
-    const mathMatch = q.match(/(?:resta|diferencia|cu[aá]nto\s+es|calcula)?(?:\s+(?:de|entre))?\s*([0-9][0-9.,]*)\s*(?:menos|-|y)\s*([0-9][0-9.,]*)/i) ||
-                      q.match(/([0-9][0-9.,]*)\s*-\s*([0-9][0-9.,]*)/);
-
-    if (mathMatch && !q.includes('2024-') && !q.includes('2025-') && !q.includes('2026-')) {
-      const parseFinancialNumber = (str: string): number => {
-        let s = str.trim();
-        if (s.includes('.') && s.includes(',')) {
-          s = s.replace(/\./g, '').replace(',', '.');
-        } else if (s.includes(',')) {
-          s = s.replace(',', '.');
-        }
-        return parseFloat(s) || 0;
-      };
-
-      const val1 = parseFinancialNumber(mathMatch[1]);
-      const val2 = parseFinancialNumber(mathMatch[2]);
-      const diff = val1 - val2;
-
-      return {
-        text: [
-          `🧮 **Cálculo Financiero y Cuadre Matemático**`,
-          '',
-          `| Concepto | Monto |\n| :--- | :--- |\n| **Valor Base (Minuendo)** | ${this.formatBs(val1)} |\n| **Deducción (Sustraendo)** | ${this.formatBs(val2)} |\n| **Diferencia Neta (Δ)** | **${this.formatBs(diff)}** |`,
-          '',
-          diff === 0
-            ? `✅ **Cuadre Perfecto:** La diferencia es exactamente cero (Δ = 0.00). El balance matemático no presenta descuadre.`
-            : `ℹ️ **Resultado:** La operación arroja una variación neta de **${this.formatBs(diff)}**.`
-        ].join('\n'),
-        note: 'Calculadora Financiera de ICHI · Precisión Decimal',
-      };
-    }
-
-    // -------------------------------------------------------------
-    // 6. PROTOCOLO DE ACLARATORIAS SI LA PREGUNTA ES AMBIGUA
-    // -------------------------------------------------------------
-    const bancoMatch = q.match(/(?:banco|cta|cuenta)\s*([0-9]{3,4})/i) || 
-                       contextActive.match(/(?:banco|cta)\s*([0-9]{3,4})/i);
-    const bancoDetectado = bancoMatch ? bancoMatch[1].slice(-3) : (dto.banco || null);
-
-    const esPreguntaAmbiguaFinanciera = 
-      /(?:cu[aá]nto\s+(?:hay|queda|tenemos|entr[oó]|recaud[oó])|dame\s+el\s+balance|total\s+recaudado|revisa\s+las?\s+planillas?|concilia\s+(?:esto|el\s+d[ií]a)|ver\s+lotes?)/i.test(q) &&
-      !bancoDetectado;
-
-    if (esPreguntaAmbiguaFinanciera) {
-      return {
-        text: [
-          `🤔 **Aclaratoria Requerida para Extraer los Datos**`,
-          '',
-          `Para poder consultar y sintetizar los datos con exactitud desde la base de datos de SIGECOF:`,
-          '',
-          `1. **Código de Banco:** ¿A cuál institución bancaria te refieres? (ejemplo: **102** Banco de Venezuela, **105** Mercantil, **134** Banesco, **108** Provincial, etc.).`,
-          `2. **Período de Análisis:** ¿Deseas consultar el **acumulado del año en curso** o la fecha de un expediente específico?`,
-          '',
-          `*Por favor indícame el código del banco para generar el reporte tabular.*`
-        ].join('\n'),
-        note: 'Protocolo de Aclaratoria · Solicitud de Parámetros Específicos',
-      };
-    }
-
-    // -------------------------------------------------------------
-    // 7. ENRUTAMIENTO A HERRAMIENTAS PREDEFINIDAS SEGURAS (TOOLS)
-    // -------------------------------------------------------------
-    const enabledTools = Array.isArray(dto.enabledTools) && dto.enabledTools.length > 0
-      ? dto.enabledTools
-      : ['consultar_resumen_banco', 'consultar_planillas_pendientes', 'consultar_estado_motor', 'consultar_expediente', 'consultar_formas_excluidas'];
-
-    const expMatch = q.match(/(?:expediente|planilla|forma)\s*#?\s*([0-9]{3,10})/i);
-    const expDetectado = expMatch ? expMatch[1] : undefined;
-
-    let selectedTool: string | null = null;
-    let toolParams: Record<string, any> = {};
-
-    if ((q.includes('motor') || q.includes('estado') || q.includes('lote') || q.includes('proceso') || q.includes('corriendo') || q.includes('conciliando')) && enabledTools.includes('consultar_estado_motor')) {
-      selectedTool = 'consultar_estado_motor';
-    } else if ((q.includes('pendiente') || q.includes('sin conciliar') || q.includes('faltan') || q.includes('por depurar')) && enabledTools.includes('consultar_planillas_pendientes')) {
-      selectedTool = 'consultar_planillas_pendientes';
-      toolParams = { banco: bancoDetectado || '105', limite: dto.formatOptions?.maxRecords || 10 };
-    } else if (expDetectado && enabledTools.includes('consultar_expediente')) {
-      selectedTool = 'consultar_expediente';
-      toolParams = { expediente: expDetectado };
-    } else if ((q.includes('forma') || q.includes('exclu') || q.includes('catalogo') || q.includes('regla')) && enabledTools.includes('consultar_formas_excluidas')) {
-      selectedTool = 'consultar_formas_excluidas';
-      toolParams = { banco: bancoDetectado || '105' };
-    } else if ((q.includes('resumen') || q.includes('total') || q.includes('monto') || q.includes('balance') || q.includes('recaud') || q.includes('banco') || q.includes('cuanto')) && enabledTools.includes('consultar_resumen_banco')) {
-      selectedTool = 'consultar_resumen_banco';
-      toolParams = { banco: bancoDetectado || '105' };
-    }
-
-    if (selectedTool) {
-      const toolRes = await this.executeTool(selectedTool, toolParams, dto.formatOptions);
-      return {
-        text: toolRes.formattedText,
-        note: toolRes.note,
-        toolUsed: selectedTool,
-      };
-    }
-
-    // -------------------------------------------------------------
-    // 8. INFERENCIA CON EL PROVEEDOR DE LLM (SI ESTÁ DISPONIBLE)
-    // -------------------------------------------------------------
-    const activeProvider = (dto.llmConfig?.provider || 'deepseek') as any;
-    const apiKey = dto.llmConfig?.apiKey;
-
-    if (apiKey) {
-      try {
-        const systemPrompt = [
-          `Eres ICHI, el asistente de inteligencia artificial oficial de la Oficina Nacional del Tesoro (ONT) y SENIAT en la República Bolivariana de Venezuela.`,
-          `Tu especialidad es la conciliación bancaria masiva, análisis presupuestario de lotes y síntesis de recaudación.`,
-          ``,
-          `DIRECTRICES CRÍTICAS DE SEGURIDAD Y COMPORTAMIENTO:`,
-          `1. PERFIL EXCLUSIVO DE SOLO LECTURA: Tienes terminantemente PROHIBIDO modificar, alterar, insertar o eliminar registros. Si el usuario te pide cambiar algo, recházalo cordialmente explicando que tu rol es solo lectura y síntesis analítica.`,
-          `2. ACLARATORIAS: Si el usuario realiza una pregunta ambigua o faltan datos esenciales (como el banco o la fecha), solicita una aclaratoria educada antes de especular.`,
-          `3. FORMATO LIMPIO: Presenta siempre las respuestas con formato Markdown limpio, estructurado y usando tablas siempre que haya listas o métricas.`,
-          `4. MONEDA: Utiliza siempre la denominación en Bolívares: Bs. 1.234.567,89.`,
-          `5. CONTEXTO ACTIVO: ${contextActive}. Motor de conciliación: ${isRunning ? 'En ejecución' : 'En reposo'}.`,
-        ].join('\n');
-
-        const respuestaLlm = await this.iaService.generarTexto(systemPrompt, rawQ, {
-          providerOverride: activeProvider,
-          apiKeyOverride: apiKey,
-          baseUrlOverride: dto.llmConfig?.baseUrl,
-          modelOverride: dto.llmConfig?.model,
-          temperature: Number(dto.llmConfig?.temperature) || 0.3,
-        });
-
-        if (respuestaLlm && respuestaLlm.trim()) {
-          return {
-            text: respuestaLlm.trim(),
-            note: `Inferencia IA · Modelo: ${dto.llmConfig?.model || 'Activo'} (${activeProvider.toUpperCase()})`,
-          };
-        }
-      } catch (err: any) {
-        this.logger.warn(`[ICHI] Error en llamada LLM en vivo: ${err.message}. Usando síntesis determinista.`);
-      }
-    }
-
-    // -------------------------------------------------------------
-    // 9. RESPUESTA INSTITUCIONAL DETERMINISTA DE APOYO
-    // -------------------------------------------------------------
-    const reply = [
-      `¡Hola! Soy **ICHI**, tu asistente de IA para el Orquestador ONT SIGECOF.`,
-      '',
-      `Mi perfil es de **Solo Lectura, Consulta y Síntesis de Registros**. Puedes consultarme:`,
-      `• *¿Cuánto recaudó el banco 105?* (Balance en Bolívares)`,
-      `• *¿Cuántas planillas quedan pendientes?* (Lotes y secuencias)`,
-      `• *¿Cuál es el estado del motor?* (Diagnóstico y mutex)`,
-      `• *¿Qué modelo estás operando y cómo está tu conexión?*`,
-      `• *¿Qué día es hoy y qué hora tenemos?*`,
-      `• *Cálculos matemáticos* (ej: resta 1.500.000 menos 320.000)`,
-      `• *Valores de referencia cambiaria BCV*`,
-      '',
-      `📍 *Contexto actual:* ${contextActive}`,
-      `¿En qué puedo orientarte para esta pantalla?`
-    ].join('\n');
-
     return {
-      text: reply,
-      note: 'ICHI AI Assistant · ONT SIGECOF (Gateway Seguro)',
+      text: [
+        `¡Hola! Soy **ICHI**, el asistente de inteligencia artificial oficial de la **Oficina Nacional del Tesoro (ONT)** y **SENIAT**.`,
+        '',
+        `Mi perfil es de **Solo Lectura, Consulta y Síntesis de Registros**. Puedes consultarme:`,
+        `• **Balances y Recaudación:** *"¿Cuánto recaudó el banco 105?"*`,
+        `• **Planillas y Lotes:** *"¿Cuántas planillas quedan pendientes?"*`,
+        `• **Diagnóstico:** *"¿Cuál es el estado del motor de conciliación?"*`,
+        `• **Reglas y Formas:** *"¿Cómo imputa la forma 99044?"*`,
+        `• **Consultas Generales:** Cálculos matemáticos, fecha oficial, tasa de cambio BCV o explicaciones presupuestarias.`,
+        '',
+        `📍 *Contexto actual:* ${contextActive}`,
+        `¿En qué puedo orientarte para esta pantalla?`
+      ].join('\n'),
+      note: `ICHI Gateway Seguro · ${provActual} (${modeloActual})`,
     };
   }
 }

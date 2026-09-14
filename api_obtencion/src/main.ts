@@ -1,5 +1,11 @@
+import * as dotenv from 'dotenv';
+import * as path from 'path';
 import * as net from 'net';
 import * as dns from 'dns';
+
+// Asegurar carga forzada e inmediata de variables de entorno de .env
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 try {
   (net as any).setDefaultAutoSelectFamily?.(false);
