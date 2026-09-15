@@ -631,13 +631,15 @@ function OrquestadorPageInner() {
               <option value={1000}>1 000</option>
               <option value={5000}>5 000</option>
               <option value={10000}>10 000</option>
+              <option value={20000}>20 000</option>
+              <option value={30000}>30 000 (Máximo)</option>
             </select>
           </div>
           <button type="submit" className="btn btn-primary search-btn" disabled={loading}>
             {loading ? (
               <><span className="spinner" aria-hidden="true" /> Buscando…</>
             ) : (
-              <><Search size={16} /> Buscar Lote</>
+              <><Search size={16} /> Buscar Expediente</>
             )}
           </button>
         </form>

@@ -38,6 +38,29 @@ def conectar_consulta():
     """Atajo para conectar con el usuario de solo lectura consulta."""
     return conectar("consulta")
 
+def probar_conexion(user="consulta"):
+    """Prueba la conexión a producción y reporta versión de Oracle."""
+    print(f"\n[+] Probando conexión a {DB_HOST}:{DB_PORT} (SID: {DB_SID}) con usuario '{user}'...")
+    try:
+        conn = conectar(user)
+        print(f"    ✔ Conexión exitosa. Versión del cliente Oracle: {conn.version}")
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT banner FROM v$version")
+            rows = cur.fetchall()
+            print("    ✔ Banner de la Base de Datos:")
+            for (b,) in rows:
+                print(f"       - {b}")
+        except Exception as e:
+            print(f"    ⚠ No se pudo consultar v$version (sin permisos): {e}")
+        finally:
+            cur.close()
+            conn.close()
+        return True
+    except Exception as e:
+        print(f"    ✖ Error de conexión con '{user}': {e}")
+        return False
+
 def resumen_esquemas(cursor):
     # Consulta para contar la cantidad de tablas, vistas, etc. por esquema
     consulta_sql = """
@@ -127,6 +150,12 @@ def exportar_todos_esquemas(cursor):
         print(f"\n[Error al escribir el archivo]: {e}")
 
 def main():
+    if "--test" in sys.argv:
+        print("=== TEST DE CONECTIVIDAD SIGECOF PRODUCCIÓN ===")
+        probar_conexion("consulta")
+        probar_conexion("ONT_SIR_BOT")
+        return
+
     conexion = None
     cursor = None
     try:
@@ -141,8 +170,9 @@ def main():
             print("1. Ver resumen de objetos (cantidad de tablas/vistas) por esquema")
             print("2. Explorar tablas y vistas de un esquema específico")
             print("3. Exportar el detalle de TODAS las tablas y vistas de todos los esquemas a un archivo")
-            print("4. Salir")
-            opcion = input("Elige una opción (1/2/3/4): ").strip()
+            print("4. Probar conectividad y versión de Oracle")
+            print("5. Salir")
+            opcion = input("Elige una opción (1/2/3/4/5): ").strip()
 
             if opcion == '1':
                 resumen_esquemas(cursor)
@@ -153,6 +183,9 @@ def main():
             elif opcion == '3':
                 exportar_todos_esquemas(cursor)
             elif opcion == '4':
+                probar_conexion("consulta")
+                probar_conexion("ONT_SIR_BOT")
+            elif opcion == '5':
                 break
             else:
                 print("Opción no válida. Intenta de nuevo.")

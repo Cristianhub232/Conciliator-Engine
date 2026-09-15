@@ -2099,9 +2099,22 @@ export class PlanillasService {
       throw new BadRequestException('Debe indicar el nuevo transcriptor destino.');
     }
 
+    // 1. Validar límite máximo de tamaño de lote (Caso 16) y deduplicar payload (Caso 15)
+    const seen = new Set<string>();
+    const expedientesUnicos = expedientes.filter((item) => {
+      const key = `${item.expediente}-${item.anho || 2024}-${item.workitem || 1}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    if (expedientesUnicos.length > 500) {
+      throw new BadRequestException('El límite máximo por lote de reasignación es de 500 expedientes.');
+    }
+
     const targetUser = nuevo_transcriptor.trim();
 
-    // 1. Validar que el nuevo transcriptor exista y esté activo en SIGECOF
+    // 2. Validar que el nuevo transcriptor exista y esté activo en SIGECOF (Caso 7)
     const userCheckQuery = `
       SELECT USERS_ID, USERS_NOMBRE_CORTO, USERS_NOMBRE_LARGO, USERS_STATUS
       FROM WFE_WORKFLOW.WF_USERS
@@ -2119,8 +2132,14 @@ export class PlanillasService {
       targetUserData.USERS_ID;
 
     const operadorFinal = usuario_operador || 'ONT_SIR_BOT';
-    const observacionFinal =
-      observacion || `Reasignación de balanceo operativo a ${nombreNuevoTranscriptor}`;
+    
+    // Truncar observación a máximo 500 BYTES para evitar ORA-12899 (semántica BYTE en AL32UTF8 - Caso 19)
+    const rawObs = observacion || `Reasignación de balanceo operativo a ${nombreNuevoTranscriptor}`;
+    let bufObs = Buffer.from(rawObs, 'utf-8');
+    if (bufObs.length > 500) {
+      bufObs = bufObs.subarray(0, 500);
+    }
+    const observacionFinal = bufObs.toString('utf-8').replace(/\uFFFD$/, '');
 
     const reasignadosExitosos: any[] = [];
     const reasignadosFallidos: any[] = [];
@@ -2128,28 +2147,21 @@ export class PlanillasService {
     const writeConn = await this.db.getConnection();
 
     try {
-      for (const item of expedientes) {
+      for (const item of expedientesUnicos) {
         const expNum = Number(item.expediente);
         const anhoNum = Number(item.anho || 2024);
+        const orgaId = (item as any).orga_id || '93';
 
         try {
-          // Consultar historial de WorkItems de este expediente en la organización 93
+          // Consultar historial de WorkItems de este expediente
           const wiQuery = `
             SELECT WORKITEM, WFEX_EXP_ID, ANHO, ORGA_ID, WI_NOMBRE, WI_DESCRIPCION, WI_ORIGEN,
                    WI_ESTADO, WFUS_USERS_ID, WFTA_TAREA_ID
             FROM WFE_WORKFLOW.WF_WORK_ITEM
-            WHERE WFEX_EXP_ID = :expNum AND ANHO = :anhoNum AND ORGA_ID = '93'
+            WHERE WFEX_EXP_ID = :expNum AND ANHO = :anhoNum AND ORGA_ID = :orgaId
             ORDER BY WORKITEM ASC
           `;
-          const currentWis = await this.db.executeQuery<any>(wiQuery, { expNum, anhoNum });
-
-          // Calcular siguiente secuencia de WorkItem
-          let maxWi = 0;
-          for (const wi of currentWis) {
-            const n = Number(wi.WORKITEM);
-            if (!isNaN(n) && n > maxWi) maxWi = n;
-          }
-          const nextWi = maxWi + 1;
+          const currentWis = await this.db.executeQuery<any>(wiQuery, { expNum, anhoNum, orgaId });
 
           // Detectar el WorkItem activo actual (ABIERTA o PENDIENTE)
           const activeWi =
@@ -2162,93 +2174,83 @@ export class PlanillasService {
           const currentWiNum = activeWi ? Number(activeWi.WORKITEM) : item.workitem || null;
           const usuarioAnterior = activeWi?.WFUS_USERS_ID || 'GILLIAMS_0028';
 
-          // Rescatar o construir descripción estándar
-          let descripcionWi = activeWi?.WI_DESCRIPCION;
-          if (!descripcionWi) {
-            const bancoLote = item.banco || '';
-            const fechaLote = item.fecha_recaudacion || '';
-            descripcionWi = `REASIGNACION - Banco: ${bancoLote} Dia: ${fechaLote}`;
+          if (!currentWiNum) {
+            throw new Error(`No se pudo determinar el WorkItem activo para el expediente ${expNum}.`);
           }
 
-          // A) Intentar formalizar el cierre del WorkItem activo anterior en Oracle
-          if (currentWiNum && activeWi?.WI_ESTADO !== 'CERRADA') {
-            try {
-              await writeConn.execute(
-                `UPDATE WFE_WORKFLOW.WF_WORK_ITEM
-                 SET WI_ESTADO = 'CERRADA',
-                     WI_FECHA_CIERRE = SYSDATE,
-                     WI_OBSERVACION = NVL(:obs, WI_OBSERVACION)
-                 WHERE WFEX_EXP_ID = :expNum
-                   AND ANHO = :anhoNum
-                   AND ORGA_ID = '93'
-                   AND WORKITEM = :currentWiNum`,
-                {
-                  expNum,
-                  anhoNum,
-                  currentWiNum,
-                  obs: `Cerrado por reasignación de carga hacia ${targetUserData.USERS_ID}`,
-                },
-                { autoCommit: false },
-              );
-            } catch (updateErr: any) {
-              this.logger.warn(`Aviso al actualizar WI actual ${currentWiNum} a CERRADA en exp ${expNum}: ${updateErr.message}`);
-            }
-          }
-
-          // B) Insertar el nuevo WorkItem en estado 'PENDIENTE' para el nuevo transcriptor
-          await writeConn.execute(
-            `INSERT INTO WFE_WORKFLOW.WF_WORK_ITEM (
-               WORKITEM, WFEX_EXP_ID, ANHO, ORGA_ID,
-               WI_NOMBRE, WI_DESCRIPCION, WI_ORIGEN,
-               WI_PRIORIDAD, WI_ESTADO, WI_FECHA_CREACION,
-               WI_FECHA_VENCIMIENTO, WFUS_USERS_ID,
-               WFTA_TAREA_ID, WI_OBSERVACION
-             ) VALUES (
-               :nextWi, :expNum, :anhoNum, '93',
-               'REASIGNACION - CONCILIACION DE PLANILLAS AUTOMATICO',
-               :descripcion, :usuarioOrigen,
-               '1', 'PENDIENTE', SYSDATE,
-               SYSDATE + 5, :nuevoTranscriptor,
-               2061, :observacion
-             )`,
+          // A) Reasignar mediante UPDATE con guarda de estado (Casos 6 y 8)
+          const updateResult: any = await writeConn.execute(
+            `UPDATE WFE_WORKFLOW.WF_WORK_ITEM
+             SET WFUS_USERS_ID = :nuevoTranscriptor,
+                 WI_ESTADO = 'PENDIENTE',
+                 WI_OBSERVACION = NVL(:observacion, WI_OBSERVACION)
+             WHERE WFEX_EXP_ID = :expNum
+               AND ANHO = :anhoNum
+               AND ORGA_ID = :orgaId
+               AND WORKITEM = :currentWiNum
+               AND WI_ESTADO IN ('ABIERTA', 'PENDIENTE')`,
             {
-              nextWi,
-              expNum,
-              anhoNum,
-              descripcion: descripcionWi,
-              usuarioOrigen: operadorFinal,
               nuevoTranscriptor: targetUserData.USERS_ID,
               observacion: observacionFinal,
+              expNum,
+              anhoNum,
+              orgaId,
+              currentWiNum,
             },
             { autoCommit: false },
           );
 
+          // Si no afectó ninguna fila, fallar de inmediato para rollback (Caso 6)
+          if (!updateResult.rowsAffected || updateResult.rowsAffected === 0) {
+            throw new Error(
+              `Expediente ${expNum} (WI #${currentWiNum}) no encontrado o no se encuentra en estado ABIERTA/PENDIENTE (rowsAffected = 0).`,
+            );
+          }
+
+          // B) Registro explícito en WF_AUDITA_EXPEDIENTES de Oracle (Caso 5)
+          try {
+            await writeConn.execute(
+              `INSERT INTO WFE_WORKFLOW.WF_AUDITA_EXPEDIENTES (
+                 USUARIO_ORACLE, ORGANISMO_ID, USUARIO_APLICATIVO, EXPEDIENTE_ID, FECHA_HORA
+               ) VALUES (
+                 'ONT_SIR_BOT', :orgaId, :operador, :expedienteStr, TO_CHAR(SYSDATE, 'DD/MM/YYYY:HH24:MI:SS')
+               )`,
+              {
+                orgaId: orgaId.substring(0, 3),
+                operador: operadorFinal.substring(0, 15),
+                expedienteStr: String(expNum).substring(0, 10),
+              },
+              { autoCommit: false },
+            );
+          } catch (auditErr: any) {
+            this.logger.warn(`Aviso al insertar en WF_AUDITA_EXPEDIENTES para exp ${expNum}: ${auditErr.message}`);
+          }
+
+          // Commit individual por item exitoso
           await writeConn.commit();
 
           // C) Registrar auditoría en PostgreSQL
           await this.registrarAuditoriaJson({
             accion: 'REASIGNACION_EXPEDIENTES_CARGA',
-            expediente: expNum,
-            anho: anhoNum,
-            usuario_operador: operadorFinal,
-            usuario_anterior: usuarioAnterior,
-            nuevo_transcriptor: targetUserData.USERS_ID,
-            nombre_nuevo_transcriptor: nombreNuevoTranscriptor,
-            workitem_cerrado: currentWiNum,
-            workitem_nuevo: nextWi,
-            estado_anterior: activeWi?.WI_ESTADO || 'ABIERTA',
-            estado_nuevo: 'PENDIENTE',
-            tarea_id: 2061,
-            tarea_nombre: 'CONCILIACION DE PLANILLAS AUTOMATICO',
-            observacion: observacionFinal,
-            timestamp: new Date().toISOString(),
+            modulo: 'REASIGNACION_OPERATIVA',
+            usuario: operadorFinal,
+            detalles: {
+              expediente: expNum,
+              anho: anhoNum,
+              workitem: currentWiNum,
+              metodo: 'UPDATE_DIRECTO',
+              usuario_anterior: usuarioAnterior,
+              estado_anterior: activeWi?.WI_ESTADO || 'ABIERTA',
+              nuevo_transcriptor: targetUserData.USERS_ID,
+              estado_nuevo: 'PENDIENTE',
+              observacion: observacionFinal,
+            },
           });
 
           reasignadosExitosos.push({
             expediente: expNum,
             anho: anhoNum,
-            workitem_anterior: currentWiNum,
-            workitem_nuevo: nextWi,
+            workitem: currentWiNum,
             usuario_anterior: usuarioAnterior,
             nuevo_transcriptor: targetUserData.USERS_ID,
             nuevo_estado: 'PENDIENTE',
