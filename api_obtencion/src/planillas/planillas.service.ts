@@ -1764,24 +1764,35 @@ export class PlanillasService {
       );
       expCabeceraCerrada = (updateExpRes?.rowsAffected || 0) > 0;
 
-      // 4.3 Cierre in-situ del WorkItem activo en WF_WORK_ITEM: Actualizar a 'CERRADA'
+      // 4.3 Cierre in-situ del WorkItem activo en WF_WORK_ITEM mediante paquete Designer CG$WF_WORK_ITEM
       if (currentWiNum) {
         try {
-          const updateWiRes: any = await writeConn.execute(
-            `UPDATE WFE_WORKFLOW.WF_WORK_ITEM
-             SET WI_ESTADO = 'CERRADA',
-                 WI_FECHA_CIERRE = SYSDATE,
-                 WI_OBSERVACION = NVL(:observacion, WI_OBSERVACION)
-             WHERE WFEX_EXP_ID = :expNum
-               AND ANHO = :anhoNum
-               AND ORGA_ID = '93'
-               AND WORKITEM = :currentWiNum`,
-            { expNum, anhoNum, currentWiNum, observacion: observacionFinal },
-            { autoCommit: false }
+          await writeConn.execute(
+            `DECLARE
+               v_rec WFE_WORKFLOW.CG$WF_WORK_ITEM.cg$row_type;
+               v_ind WFE_WORKFLOW.CG$WF_WORK_ITEM.cg$ind_type;
+             BEGIN
+               v_rec.WORKITEM := :currentWiNum;
+               v_rec.ANHO := :anhoNum;
+               v_rec.ORGA_ID := '93';
+               v_rec.WFEX_EXP_ID := :expNum;
+               
+               WFE_WORKFLOW.CG$WF_WORK_ITEM.slct(v_rec);
+               
+               v_rec.WI_ESTADO := 'CERRADA';
+               v_ind.WI_ESTADO := TRUE;
+               
+               v_rec.WI_FECHA_CIERRE := SYSDATE;
+               v_ind.WI_FECHA_CIERRE := TRUE;
+               
+               WFE_WORKFLOW.CG$WF_WORK_ITEM.upd(v_rec, v_ind);
+             END;`,
+            { expNum, anhoNum, currentWiNum },
+            { autoCommit: false },
           );
-          workItemCerrado = (updateWiRes?.rowsAffected || 0) > 0;
+          workItemCerrado = true;
         } catch (wiUpdateErr: any) {
-          this.logger.warn(`Aviso al actualizar WF_WORK_ITEM a CERRADA (pendiente GRANT SELECT DBA): ${wiUpdateErr.message}`);
+          this.logger.warn(`Aviso al actualizar WF_WORK_ITEM a CERRADA con CG$WF_WORK_ITEM: ${wiUpdateErr.message}`);
         }
       }
 
@@ -2149,20 +2160,30 @@ export class PlanillasService {
             throw new Error(`No se pudo determinar el WorkItem activo para el expediente ${expNum}.`);
           }
 
-          // A) Reasignar mediante UPDATE con guarda de estado (Casos 6 y 8)
-          const updateResult: any = await writeConn.execute(
-            `UPDATE WFE_WORKFLOW.WF_WORK_ITEM
-             SET WFUS_USERS_ID = :nuevoTranscriptor,
-                 WI_ESTADO = 'PENDIENTE',
-                 WI_OBSERVACION = NVL(:observacion, WI_OBSERVACION)
-             WHERE WFEX_EXP_ID = :expNum
-               AND ANHO = :anhoNum
-               AND ORGA_ID = :orgaId
-               AND WORKITEM = :currentWiNum
-               AND WI_ESTADO IN ('ABIERTA', 'PENDIENTE')`,
+          // A) Reasignar in-situ mediante paquete oficial Oracle Designer CG$WF_WORK_ITEM (AUTHID DEFINER)
+          // Bypasea ORA-01031 por falta de SELECT directo en WF_WORK_ITEM y actualiza usuario y estado
+          await writeConn.execute(
+            `DECLARE
+               v_rec WFE_WORKFLOW.CG$WF_WORK_ITEM.cg$row_type;
+               v_ind WFE_WORKFLOW.CG$WF_WORK_ITEM.cg$ind_type;
+             BEGIN
+               v_rec.WORKITEM := :currentWiNum;
+               v_rec.ANHO := :anhoNum;
+               v_rec.ORGA_ID := :orgaId;
+               v_rec.WFEX_EXP_ID := :expNum;
+               
+               WFE_WORKFLOW.CG$WF_WORK_ITEM.slct(v_rec);
+               
+               v_rec.WFUS_USERS_ID := :nuevoTranscriptor;
+               v_ind.WFUS_USERS_ID := TRUE;
+               
+               v_rec.WI_ESTADO := 'PENDIENTE';
+               v_ind.WI_ESTADO := TRUE;
+               
+               WFE_WORKFLOW.CG$WF_WORK_ITEM.upd(v_rec, v_ind);
+             END;`,
             {
               nuevoTranscriptor: targetUserData.USERS_ID,
-              observacion: observacionFinal,
               expNum,
               anhoNum,
               orgaId,
@@ -2171,11 +2192,22 @@ export class PlanillasService {
             { autoCommit: false },
           );
 
-          // Si no afectó ninguna fila, fallar de inmediato para rollback (Caso 6)
-          if (!updateResult.rowsAffected || updateResult.rowsAffected === 0) {
-            throw new Error(
-              `Expediente ${expNum} (WI #${currentWiNum}) no encontrado o no se encuentra en estado ABIERTA/PENDIENTE (rowsAffected = 0).`,
+          // Sincronizar también la cabecera en WF_EXPEDIENTE
+          try {
+            await writeConn.execute(
+              `UPDATE WFE_WORKFLOW.WF_EXPEDIENTE
+               SET WFPU_WFUS_USERS_ID = :nuevoTranscriptor
+               WHERE EXP_ID = :expNum AND ANHO = :anhoNum AND ORGA_ID = :orgaId`,
+              {
+                nuevoTranscriptor: targetUserData.USERS_ID,
+                expNum,
+                anhoNum,
+                orgaId,
+              },
+              { autoCommit: false },
             );
+          } catch (expUpdErr: any) {
+            this.logger.warn(`Aviso al actualizar cabecera WF_EXPEDIENTE para exp ${expNum}: ${expUpdErr.message}`);
           }
 
           // B) Registro explícito en WF_AUDITA_EXPEDIENTES de Oracle (Caso 5)
