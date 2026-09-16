@@ -143,5 +143,11 @@ export class EjecutarCierreMasivoDto {
     default: 'ONT_SIR_BOT' 
   })
   usuario_operador?: string;
+
+  @ApiPropertyOptional({ 
+    description: 'Usuario validador destino para la Tarea 2062 (o AUTO para balanceo dinámico)', 
+    default: 'AUTO' 
+  })
+  validador_destino?: string;
 }
 

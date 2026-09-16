@@ -2716,16 +2716,50 @@ export class PlanillasService {
   }
 
   /**
-   * Cierra de forma masiva o individual los expedientes seleccionados que ya no tienen
-   * planillas pendientes de conciliar.
-   * Ejecuta la actualización in-situ mediante CG$WF_WORK_ITEM.upd, finaliza lotes en ORG_LIQ.LOTE
-   * e inserta el evento de auditoría en WF_AUDITA_EXPEDIENTES.
+   * Obtiene la lista de usuarios supervisores/validadores disponibles para la Tarea 2062
+   * con su respectiva carga actual de expedientes en estado PENDIENTE.
+   */
+  async consultarValidadoresDisponibles(anho = 2024) {
+    const anhoNum = Number(anho) || 2024;
+    const query = `
+      SELECT WI.WFUS_USERS_ID AS USERS_ID, 
+             TRIM(NVL(MAX(U.USERS_NOMBRE_CORTO || ' ' || U.USERS_NOMBRE_LARGO), WI.WFUS_USERS_ID)) AS NOMBRE_COMPLETO,
+             COUNT(CASE WHEN WI.WI_ESTADO = 'PENDIENTE' THEN 1 END) AS EXPEDIENTES_PENDIENTES
+      FROM WFE_WORKFLOW.WF_WORK_ITEM WI
+      LEFT JOIN WFE_WORKFLOW.WF_USERS U ON U.USERS_ID = WI.WFUS_USERS_ID
+      WHERE WI.ORGA_ID = '93' 
+        AND WI.ANHO = :anhoNum
+        AND WI.WFTA_TAREA_ID = 2062
+      GROUP BY WI.WFUS_USERS_ID
+      HAVING COUNT(*) >= 5
+      ORDER BY EXPEDIENTES_PENDIENTES ASC
+    `;
+    try {
+      const rows = await this.db.executeQuery<any>(query, { anhoNum });
+      return {
+        success: true,
+        data: rows.map((r) => ({
+          users_id: r.USERS_ID,
+          nombre_completo: r.NOMBRE_COMPLETO || r.USERS_ID,
+          pendientes: Number(r.EXPEDIENTES_PENDIENTES || 0),
+        })),
+      };
+    } catch (err: any) {
+      this.logger.warn(`Aviso al consultar validadores disponibles: ${err.message}`);
+      return { success: true, data: [] };
+    }
+  }
+
+  /**
+   * Cierra de forma masiva o individual la Tarea 2061 (Conciliación) de los expedientes
+   * 100% conciliados, finaliza lotes en ORG_LIQ.LOTE ('V') y avanza el Workflow formalmente
+   * a la Tarea 2062 ("Validar Conciliación de Ingreso") asignándola al validador correspondiente.
    */
   async ejecutarCierreExpedientesMasivo(dto: EjecutarCierreMasivoDto) {
-    const { expedientes, observacion, usuario_operador } = dto;
+    const { expedientes, observacion, usuario_operador, validador_destino } = dto;
 
     if (!expedientes || !Array.isArray(expedientes) || expedientes.length === 0) {
-      throw new BadRequestException('Debe seleccionar al menos un expediente para cerrar.');
+      throw new BadRequestException('Debe seleccionar al menos un expediente para procesar.');
     }
 
     // Deduplicar
@@ -2748,6 +2782,15 @@ export class PlanillasService {
       bufObs = bufObs.subarray(0, 500);
     }
     const observacionFinal = bufObs.toString('utf-8').replace(/\uFFFD$/, '');
+
+    // Pre-cargar lista de validadores para balanceo de carga automático
+    let poolValidadores: Array<{ users_id: string; pendientes: number }> = [];
+    if (!validador_destino || validador_destino === 'AUTO') {
+      const vRes = await this.consultarValidadoresDisponibles(expedientesUnicos[0]?.anho || 2024);
+      if (vRes.success && vRes.data.length > 0) {
+        poolValidadores = vRes.data.map((v) => ({ users_id: v.users_id, pendientes: v.pendientes }));
+      }
+    }
 
     const cerradosExitosos: any[] = [];
     const cerradosFallidos: any[] = [];
@@ -2793,7 +2836,7 @@ export class PlanillasService {
             { autoCommit: false },
           );
 
-          // 3. Cerrar in-situ mediante paquete oficial Oracle Designer CG$WF_WORK_ITEM (AUTHID DEFINER)
+          // 3. Cerrar in-situ la Tarea 2061 mediante paquete oficial Oracle Designer CG$WF_WORK_ITEM (AUTHID DEFINER)
           await writeConn.execute(
             `DECLARE
                v_rec WFE_WORKFLOW.CG$WF_WORK_ITEM.cg$row_type;
@@ -2823,7 +2866,94 @@ export class PlanillasService {
             { autoCommit: false },
           );
 
-          // 4. Registro de auditoría institucional
+          // 4. Determinar siguiente WorkItem y Validador para la Tarea 2062 ("Validar Conciliación de Ingreso")
+          const maxWi = currentWis.reduce((max, w) => Math.max(max, Number(w.WORKITEM || 0)), currentWiNum);
+          const nextWiNum = maxWi + 1;
+
+          let targetValidador = validador_destino && validador_destino !== 'AUTO' ? validador_destino.trim() : '';
+          if (!targetValidador) {
+            if (poolValidadores.length > 0) {
+              poolValidadores.sort((a, b) => a.pendientes - b.pendientes);
+              targetValidador = poolValidadores[0].users_id;
+              poolValidadores[0].pendientes += 1;
+            } else {
+              targetValidador = 'SANDRA_2023';
+            }
+          }
+
+          const descWi = (activeWi && activeWi.WI_DESCRIPCION) 
+            ? activeWi.WI_DESCRIPCION 
+            : `Banco: ${item.banco || ''} Dia: ${item.fecha_recaudacion || ''}`;
+          const origUser = (activeWi && activeWi.WFUS_USERS_ID) ? activeWi.WFUS_USERS_ID : 'ONT_SIR_BOT';
+
+          // 5. Insertar formalmente el WorkItem de avance a Tarea 2062 mediante CG$WF_WORK_ITEM.ins
+          await writeConn.execute(
+            `DECLARE
+               v_rec WFE_WORKFLOW.CG$WF_WORK_ITEM.cg$row_type;
+               v_ind WFE_WORKFLOW.CG$WF_WORK_ITEM.cg$ind_type;
+             BEGIN
+               v_rec.WORKITEM := :nextWiNum;
+               v_ind.WORKITEM := TRUE;
+               v_rec.WFEX_EXP_ID := :expNum;
+               v_ind.WFEX_EXP_ID := TRUE;
+               v_rec.ANHO := :anhoNum;
+               v_ind.ANHO := TRUE;
+               v_rec.ORGA_ID := :orgaId;
+               v_ind.ORGA_ID := TRUE;
+               v_rec.WI_NOMBRE := 'Validar Conciliación de Ingreso';
+               v_ind.WI_NOMBRE := TRUE;
+               v_rec.WI_DESCRIPCION := :descWi;
+               v_ind.WI_DESCRIPCION := TRUE;
+               v_rec.WI_ORIGEN := :origUser;
+               v_ind.WI_ORIGEN := TRUE;
+               v_rec.WI_PRIORIDAD := 1;
+               v_ind.WI_PRIORIDAD := TRUE;
+               v_rec.WI_ESTADO := 'PENDIENTE';
+               v_ind.WI_ESTADO := TRUE;
+               v_rec.WI_FECHA_CREACION := SYSDATE;
+               v_ind.WI_FECHA_CREACION := TRUE;
+               v_rec.WI_FECHA_VENCIMIENTO := SYSDATE + 3;
+               v_ind.WI_FECHA_VENCIMIENTO := TRUE;
+               v_rec.WI_FECHA_RECI := SYSDATE;
+               v_ind.WI_FECHA_RECI := TRUE;
+               v_rec.WFUS_USERS_ID := :targetValidador;
+               v_ind.WFUS_USERS_ID := TRUE;
+               v_rec.WFTA_TAREA_ID := 2062;
+               v_ind.WFTA_TAREA_ID := TRUE;
+               
+               WFE_WORKFLOW.CG$WF_WORK_ITEM.ins(v_rec, v_ind);
+             END;`,
+            {
+              nextWiNum,
+              expNum,
+              anhoNum,
+              orgaId,
+              descWi,
+              origUser,
+              targetValidador,
+            },
+            { autoCommit: false },
+          );
+
+          // 6. Actualizar cabecera en WF_EXPEDIENTE
+          try {
+            await writeConn.execute(
+              `UPDATE WFE_WORKFLOW.WF_EXPEDIENTE
+               SET WFPU_WFUS_USERS_ID = :targetValidador
+               WHERE EXP_ID = :expNum AND ANHO = :anhoNum AND ORGA_ID = :orgaId`,
+              {
+                targetValidador,
+                expNum,
+                anhoNum,
+                orgaId,
+              },
+              { autoCommit: false },
+            );
+          } catch (expUpdErr: any) {
+            this.logger.warn(`Aviso al actualizar cabecera WF_EXPEDIENTE para exp ${expNum}: ${expUpdErr.message}`);
+          }
+
+          // 7. Registro de auditoría institucional
           try {
             await writeConn.execute(
               `INSERT INTO WFE_WORKFLOW.WF_AUDITA_EXPEDIENTES (
@@ -2844,8 +2974,11 @@ export class PlanillasService {
           cerradosExitosos.push({
             expediente: expNum,
             anho: anhoNum,
-            workitem: currentWiNum,
-            estado: 'CERRADA',
+            workitem_cerrado: currentWiNum,
+            workitem_validacion: nextWiNum,
+            tarea_actual: 2062,
+            validador_asignado: targetValidador,
+            estado: 'AVANZADO_A_VALIDACION',
           });
         } catch (expErr: any) {
           cerradosFallidos.push({
@@ -2873,7 +3006,7 @@ export class PlanillasService {
       total_fallidos: cerradosFallidos.length,
       exitosos: cerradosExitosos,
       fallidos: cerradosFallidos,
-      mensaje: `Cierre procesado: ${cerradosExitosos.length} expediente(s) cerrado(s) exitosamente${
+      mensaje: `Cierre procesado: ${cerradosExitosos.length} expediente(s) cerrado(s) y transferido(s) exitosamente a Validación (Tarea 2062)${
         cerradosFallidos.length > 0 ? `, ${cerradosFallidos.length} con incidencias` : ''
       }.`,
     };

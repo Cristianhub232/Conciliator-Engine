@@ -568,10 +568,29 @@ export class PlanillasController {
     }
   }
 
+  @Get('cierre/validadores')
+  @ApiOperation({
+    summary: 'Listado de usuarios validadores disponibles para Tarea 2062',
+    description: 'Obtiene los usuarios supervisores activos de la Tarea 2062 con su número de expedientes pendientes para balanceo de carga.'
+  })
+  @ApiQuery({ name: 'anho', required: false, example: 2024, description: 'Año presupuestario' })
+  @ApiResponse({ status: 200, description: 'Lista de validadores obtenida exitosamente' })
+  async getValidadoresDisponibles(@Query('anho') anho?: number) {
+    try {
+      return await this.planillasService.consultarValidadoresDisponibles(anho);
+    } catch (error: any) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error al consultar validadores', message: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   @Post('cierre/ejecutar-masivo')
   @ApiOperation({
-    summary: 'Cierre masivo de expedientes 100% conciliados',
-    description: 'Cierra formalmente los expedientes seleccionados en el Workflow (CG$WF_WORK_ITEM.upd), actualiza lotes y registra auditoría.'
+    summary: 'Cierre de Tarea 2061 y avance a Validación (Tarea 2062)',
+    description: 'Cierra formalmente los expedientes en Tarea 2061, actualiza lotes a V y genera el WorkItem de avance a Tarea 2062 (Validación).'
   })
   @ApiResponse({ status: 200, description: 'Expedientes cerrados exitosamente' })
   async ejecutarCierreExpedientesMasivo(@Body() payload: EjecutarCierreMasivoDto) {

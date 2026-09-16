@@ -56,6 +56,12 @@ interface CierreKpis {
   total_bancos: number;
 }
 
+interface ValidadorItem {
+  users_id: string;
+  nombre_completo: string;
+  pendientes: number;
+}
+
 export const CierreExpedientesView: React.FC = () => {
   const { usuario } = useAuth();
 
@@ -76,6 +82,10 @@ export const CierreExpedientesView: React.FC = () => {
     total_bancos: 0,
   });
 
+  // Validadores para Tarea 2062
+  const [validadores, setValidadores] = useState<ValidadorItem[]>([]);
+  const [validadorDestino, setValidadorDestino] = useState<string>('AUTO');
+
   // Estados de carga y feedback
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -86,7 +96,7 @@ export const CierreExpedientesView: React.FC = () => {
 
   // Modal de confirmación y ejecución
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
-  const [observacion, setObservacion] = useState<string>('Cierre formal de expedientes 100% conciliados');
+  const [observacion, setObservacion] = useState<string>('Cierre de conciliación y transferencia formal a Validación (Tarea 2062)');
   const [executing, setExecuting] = useState<boolean>(false);
   const [lastResult, setLastResult] = useState<any | null>(null);
 
@@ -96,6 +106,24 @@ export const CierreExpedientesView: React.FC = () => {
   // Modal detalle de expediente
   const [selectedModalExpId, setSelectedModalExpId] = useState<number | null>(null);
   const [selectedModalAnho, setSelectedModalAnho] = useState<number>(2024);
+
+  // Cargar validadores disponibles
+  const fetchValidadores = async () => {
+    try {
+      const res = await axios.get('/api/orquestador/planillas/cierre/validadores', {
+        params: { anho: anho !== 'TODOS' ? anho : 2024 }
+      });
+      if (res.data?.success && Array.isArray(res.data?.data)) {
+        setValidadores(res.data.data);
+      }
+    } catch (err) {
+      console.warn('Aviso al cargar validadores:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchValidadores();
+  }, [anho]);
 
   // Consultar expedientes listos para cierre
   const fetchExpedientes = async () => {
@@ -235,8 +263,9 @@ export const CierreExpedientesView: React.FC = () => {
     try {
       const payload = {
         expedientes: itemsToProcess,
-        observacion: observacion.trim() || 'Cierre formal de expedientes 100% conciliados',
+        observacion: observacion.trim() || 'Cierre de conciliación y transferencia formal a Validación (Tarea 2062)',
         usuario_operador: usuario?.email || usuario?.nombre || 'ONT_SIR_BOT',
+        validador_destino: validadorDestino,
       };
 
       const res = await axios.post('/api/orquestador/planillas/cierre/ejecutar-masivo', payload);
@@ -1013,10 +1042,10 @@ export const CierreExpedientesView: React.FC = () => {
                 </div>
                 <div>
                   <h3 style={{ margin: 0, fontSize: '17px', fontWeight: '700' }}>
-                    Confirmar Cierre Formal de Expedientes
+                    Confirmar Cierre y Avance a Validación
                   </h3>
                   <p style={{ margin: '2px 0 0', fontSize: '12px', opacity: 0.9 }}>
-                    Finalización formal en SIGECOF / Workflow
+                    Cierre de Tarea 2061 y transferencia formal a Tarea 2062 en SIGECOF
                   </p>
                 </div>
               </div>
@@ -1041,12 +1070,12 @@ export const CierreExpedientesView: React.FC = () => {
                 marginBottom: '20px'
               }}>
                 <div style={{ fontSize: '12px', fontWeight: '700', color: '#166534', textTransform: 'uppercase', marginBottom: '10px' }}>
-                  Resumen de Expedientes a Cerrar
+                  Resumen de Expedientes a Procesar
                 </div>
 
                 {singleExpToClose ? (
                   <div style={{ fontSize: '13px', color: '#15803D' }}>
-                    Se procederá a cerrar el expediente <strong>#{singleExpToClose.expediente}</strong> (Año {singleExpToClose.anho}) del banco <strong>{singleExpToClose.nombre_banco}</strong> ({singleExpToClose.total_planillas} planillas 100% conciliadas).
+                    Se procederá a cerrar la conciliación del expediente <strong>#{singleExpToClose.expediente}</strong> (Año {singleExpToClose.anho}) del banco <strong>{singleExpToClose.nombre_banco}</strong> ({singleExpToClose.total_planillas} planillas 100% conciliadas) y transferirlo a validación.
                   </div>
                 ) : (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', textAlign: 'center' }}>
@@ -1066,6 +1095,36 @@ export const CierreExpedientesView: React.FC = () => {
                 )}
               </div>
 
+              {/* Selector de Supervisor / Validador Destino (Tarea 2062) */}
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#374151', marginBottom: '6px' }}>
+                  Supervisor / Validador Destino (Tarea 2062 · Validar Conciliación de Ingreso)
+                </label>
+                <select
+                  value={validadorDestino}
+                  onChange={(e) => setValidadorDestino(e.target.value)}
+                  disabled={executing}
+                  style={{
+                    width: '100%',
+                    padding: '9px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #D1D5DB',
+                    fontSize: '13px',
+                    background: '#FFFFFF'
+                  }}
+                >
+                  <option value="AUTO">⚡ Asignación Automática Inteligente (Menor carga de trabajo)</option>
+                  {validadores.map((v) => (
+                    <option key={v.users_id} value={v.users_id}>
+                      {v.nombre_completo} ({v.users_id}) — {v.pendientes} pendientes
+                    </option>
+                  ))}
+                </select>
+                <p style={{ fontSize: '11px', color: '#6B7280', margin: '4px 0 0' }}>
+                  El expediente aparecerá en la bandeja de entrada de este supervisor en SIGECOF para su revisión y aprobación formal.
+                </p>
+              </div>
+
               {/* Nota Informativa del Procedimiento */}
               <div style={{
                 background: '#EFF6FF',
@@ -1081,11 +1140,12 @@ export const CierreExpedientesView: React.FC = () => {
               }}>
                 <Info size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
                 <div>
-                  <strong>Acciones realizadas por el sistema:</strong>
+                  <strong>Acciones realizadas por el sistema en SIGECOF:</strong>
                   <ul style={{ margin: '4px 0 0', paddingLeft: '16px', lineHeight: '1.4' }}>
-                    <li>Actualización del WorkItem activo a estado <code>CERRADA</code> con <code>WI_FECHA_CIERRE = SYSDATE</code>.</li>
-                    <li>Finalización de lotes pendientes en <code>ORG_LIQ.LOTE</code> a estado <code>'V'</code> (Verificado).</li>
-                    <li>Registro de auditoría institucional en <code>WFE_WORKFLOW.WF_AUDITA_EXPEDIENTES</code>.</li>
+                    <li>Cierre del WorkItem de conciliación (Tarea 2061) con <code>WI_FECHA_CIERRE = SYSDATE</code>.</li>
+                    <li>Actualización de lotes en <code>ORG_LIQ.LOTE</code> a estado <code>'V'</code> (Verificado).</li>
+                    <li><strong>Generación del siguiente WorkItem para Tarea 2062 ("Validar Conciliación de Ingreso")</strong> en estado <code>PENDIENTE</code> para el supervisor.</li>
+                    <li>Sincronización en <code>WFE_WORKFLOW.WF_EXPEDIENTE</code> y registro de auditoría institucional.</li>
                   </ul>
                 </div>
               </div>
@@ -1127,6 +1187,19 @@ export const CierreExpedientesView: React.FC = () => {
                   <div style={{ fontSize: '12px', marginTop: '4px', color: '#4B5563' }}>
                     Procesados: {lastResult.total_procesados} | Exitosos: {lastResult.total_exitosos} | Fallidos: {lastResult.total_fallidos}
                   </div>
+
+                  {lastResult.exitosos && lastResult.exitosos.length > 0 && (
+                    <div style={{ maxHeight: '140px', overflowY: 'auto', marginTop: '10px', fontSize: '11px', borderTop: '1px solid #BBF7D0', paddingTop: '8px' }}>
+                      {lastResult.exitosos.map((ex: any) => (
+                        <div key={ex.expediente} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
+                          <span>Expediente <strong>#{ex.expediente}</strong></span>
+                          <span style={{ fontWeight: 600, color: '#047857' }}>
+                            Validador: {ex.validador_asignado} (WorkItem #{ex.workitem_validacion})
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1165,12 +1238,12 @@ export const CierreExpedientesView: React.FC = () => {
                     {executing ? (
                       <>
                         <Loader2 size={16} className="animate-spin" />
-                        Cerrando Expedientes...
+                        Transfiriendo a Validación...
                       </>
                     ) : (
                       <>
                         <CheckCircle2 size={16} />
-                        Confirmar y Ejecutar Cierre
+                        Confirmar y Transferir a Validación
                       </>
                     )}
                   </button>
