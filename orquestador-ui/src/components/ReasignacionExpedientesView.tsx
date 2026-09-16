@@ -22,9 +22,31 @@ import {
   X,
   Send,
   User,
-  ExternalLink
+  ExternalLink,
+  BarChart3,
+  ChevronDown,
+  ChevronUp,
+  TrendingUp
 } from 'lucide-react';
 import { ExpedienteDetailModal } from './ExpedienteDetailModal';
+
+export interface BancoPendienteItem {
+  banco: string;
+  nombre_banco: string;
+  total_expedientes: number;
+  lotes_pendientes: number;
+  planillas_pendientes: number;
+  porcentaje_planillas: number;
+}
+
+export interface ResumenBancosData {
+  total_bancos: number;
+  total_planillas_pendientes: number;
+  total_expedientes_pendientes: number;
+  total_lotes_pendientes: number;
+  banco_mayor_carga: BancoPendienteItem | null;
+  bancos: BancoPendienteItem[];
+}
 
 interface ExpedienteItem {
   expediente: number;
@@ -81,6 +103,12 @@ export const ReasignacionExpedientesView: React.FC = () => {
     lotes_pendientes_en_vista: 0,
   });
 
+  // Métricas de Bancos y Planillas Pendientes
+  const [resumenBancos, setResumenBancos] = useState<ResumenBancosData | null>(null);
+  const [loadingBancos, setLoadingBancos] = useState<boolean>(false);
+  const [showAllBancos, setShowAllBancos] = useState<boolean>(false);
+  const [isChartExpanded, setIsChartExpanded] = useState<boolean>(true);
+
   // Estados de carga y feedback
   const [loading, setLoading] = useState<boolean>(false);
   const [loadingTranscriptores, setLoadingTranscriptores] = useState<boolean>(false);
@@ -127,17 +155,39 @@ export const ReasignacionExpedientesView: React.FC = () => {
     }
   };
 
-  // Cargar expedientes pendientes
-  const fetchExpedientes = async () => {
-    setLoading(true);
-    setError(null);
+  // Cargar resumen de bancos con planillas pendientes para el gráfico
+  const fetchResumenBancos = async () => {
+    setLoadingBancos(true);
     try {
       const params = new URLSearchParams();
       if (usuarioOrigen) params.append('usuario_origen', usuarioOrigen);
       if (estadoWi) params.append('estado_wi', estadoWi);
       if (anho) params.append('anho', anho);
       if (mes && mes !== 'TODOS') params.append('mes', mes);
-      if (banco) params.append('banco', banco);
+
+      const res = await axios.get(`/api/orquestador/planillas/reasignacion/resumen-bancos?${params.toString()}`);
+      if (res.data?.success) {
+        setResumenBancos(res.data);
+      }
+    } catch (err: any) {
+      console.warn('Error al obtener resumen de bancos:', err);
+    } finally {
+      setLoadingBancos(false);
+    }
+  };
+
+  // Cargar expedientes pendientes
+  const fetchExpedientes = async (overrideBanco?: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const activeBanco = overrideBanco !== undefined ? overrideBanco : banco;
+      const params = new URLSearchParams();
+      if (usuarioOrigen) params.append('usuario_origen', usuarioOrigen);
+      if (estadoWi) params.append('estado_wi', estadoWi);
+      if (anho) params.append('anho', anho);
+      if (mes && mes !== 'TODOS') params.append('mes', mes);
+      if (activeBanco) params.append('banco', activeBanco);
       if (searchExp) params.append('search', searchExp.trim());
       params.append('limit', String(limit));
 
@@ -157,9 +207,28 @@ export const ReasignacionExpedientesView: React.FC = () => {
     }
   };
 
+  // Clic en un banco del gráfico para filtrar automáticamente
+  const handleSelectBancoFromChart = (codBanco: string) => {
+    if (banco === codBanco) {
+      setBanco('');
+      fetchExpedientes('');
+    } else {
+      setBanco(codBanco);
+      fetchExpedientes(codBanco);
+    }
+  };
+
+  // Refrescar todos los componentes
+  const handleRefreshAll = () => {
+    fetchExpedientes();
+    fetchResumenBancos();
+    fetchTranscriptores();
+  };
+
   useEffect(() => {
     fetchTranscriptores();
     fetchExpedientes();
+    fetchResumenBancos();
   }, []);
 
   // Clave única por expediente
@@ -278,8 +347,8 @@ export const ReasignacionExpedientesView: React.FC = () => {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <button
-            onClick={fetchExpedientes}
-            disabled={loading}
+            onClick={handleRefreshAll}
+            disabled={loading || loadingBancos}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -292,11 +361,11 @@ export const ReasignacionExpedientesView: React.FC = () => {
               color: '#3D4F66',
               fontSize: '13px',
               fontWeight: 700,
-              cursor: loading ? 'not-allowed' : 'pointer',
+              cursor: (loading || loadingBancos) ? 'not-allowed' : 'pointer',
               transition: 'all 0.15s ease'
             }}
           >
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            <RefreshCw size={14} className={(loading || loadingBancos) ? 'animate-spin' : ''} />
             Actualizar
           </button>
         </div>
@@ -358,6 +427,296 @@ export const ReasignacionExpedientesView: React.FC = () => {
               Analistas con rol Conciliador (Org 93/63)
             </div>
           </div>
+        </div>
+
+        {/* ── Panel Gráfico: Distribución de Bancos y Planillas Pendientes por Conciliar ── */}
+        <div style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #E6EBF1', padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+          {/* Header del Panel */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#EDF4FB', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#1E5C99' }}>
+                <BarChart3 size={20} strokeWidth={2.2} />
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <h2 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: '#14263C', letterSpacing: '-0.01em' }}>
+                    Distribución de Bancos y Planillas Pendientes por Conciliar
+                  </h2>
+                  {resumenBancos && (
+                    <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '12px', background: '#EFF6FF', color: '#1E5C99', border: '1px solid #BFDBFE' }}>
+                      {resumenBancos.total_bancos} Bancos con Carga
+                    </span>
+                  )}
+                  {loadingBancos && (
+                    <Loader2 size={14} className="animate-spin" style={{ color: '#1E5C99' }} />
+                  )}
+                </div>
+                <div style={{ marginTop: '2px', fontSize: '12px', color: '#6B7C90', fontWeight: 500 }}>
+                  Volumen acumulado de planillas en expedientes con estado ABIERTA o PENDIENTE (Haga clic en un banco para filtrar los expedientes)
+                </div>
+              </div>
+            </div>
+
+            {/* Controles de la cabecera */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {resumenBancos && resumenBancos.bancos.length > 6 && (
+                <button
+                  onClick={() => setShowAllBancos(!showAllBancos)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 12px',
+                    fontSize: '11.5px',
+                    fontWeight: 700,
+                    color: '#1E5C99',
+                    background: '#F0F7FF',
+                    border: '1px solid #D0E4FF',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  {showAllBancos ? 'Ver Top 6 Bancos' : `Ver Todos (${resumenBancos.bancos.length} Bancos)`}
+                </button>
+              )}
+
+              {banco && (
+                <button
+                  onClick={() => handleSelectBancoFromChart(banco)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    padding: '6px 10px',
+                    fontSize: '11.5px',
+                    fontWeight: 700,
+                    color: '#DC2626',
+                    background: '#FEF2F2',
+                    border: '1px solid #FECACA',
+                    borderRadius: '6px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <X size={12} />
+                  Quitar Filtro Banco [{banco}]
+                </button>
+              )}
+
+              <button
+                onClick={() => setIsChartExpanded(!isChartExpanded)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '28px',
+                  height: '28px',
+                  borderRadius: '6px',
+                  border: '1px solid #E1E7EE',
+                  background: '#ffffff',
+                  color: '#6B7C90',
+                  cursor: 'pointer'
+                }}
+                title={isChartExpanded ? 'Minimizar Gráfico' : 'Expandir Gráfico'}
+              >
+                {isChartExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              </button>
+            </div>
+          </div>
+
+          {isChartExpanded && (
+            <>
+              {/* Mini KPIs de Resumen */}
+              {resumenBancos && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '10px', padding: '12px 14px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #EDF2F7' }}>
+                  <div>
+                    <div style={{ fontSize: '10px', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Total Planillas Pendientes
+                    </div>
+                    <div style={{ marginTop: '3px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '18px', fontWeight: 800, color: '#1E5C99' }}>
+                      {resumenBancos.total_planillas_pendientes.toLocaleString('es-VE')}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '10px', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Expedientes Pendientes
+                    </div>
+                    <div style={{ marginTop: '3px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '18px', fontWeight: 800, color: '#0F172A' }}>
+                      {resumenBancos.total_expedientes_pendientes.toLocaleString('es-VE')}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '10px', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Lotes Pendientes
+                    </div>
+                    <div style={{ marginTop: '3px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '18px', fontWeight: 800, color: '#D97706' }}>
+                      {resumenBancos.total_lotes_pendientes.toLocaleString('es-VE')}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '10px', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Mayor Concentración
+                    </div>
+                    <div style={{ marginTop: '3px', fontSize: '13px', fontWeight: 800, color: '#B91C1C', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {resumenBancos.banco_mayor_carga ? `${resumenBancos.banco_mayor_carga.nombre_banco} (${resumenBancos.banco_mayor_carga.porcentaje_planillas}%)` : 'N/D'}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Barras Horizontales de Distribución */}
+              {loadingBancos && !resumenBancos ? (
+                <div style={{ padding: '32px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', color: '#6B7C90' }}>
+                  <Loader2 size={24} className="animate-spin" style={{ color: '#1E5C99' }} />
+                  <span style={{ fontSize: '13px', fontWeight: 600 }}>Cargando métricas de bancos y planillas pendientes...</span>
+                </div>
+              ) : resumenBancos && resumenBancos.bancos.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {(showAllBancos ? resumenBancos.bancos : resumenBancos.bancos.slice(0, 6)).map((item, idx) => {
+                    const isSelected = banco === item.banco;
+                    const maxVal = resumenBancos.banco_mayor_carga?.planillas_pendientes || 1;
+                    const relativeWidth = Math.max((item.planillas_pendientes / maxVal) * 100, 2);
+                    
+                    // Gradientes estilizados según volumen y posición
+                    let barBg = 'linear-gradient(90deg, #1E5C99, #3B82F6)';
+                    let badgeBg = '#EDF4FB';
+                    let badgeColor = '#1E5C99';
+                    if (idx === 0) {
+                      barBg = 'linear-gradient(90deg, #1D4ED8, #60A5FA)';
+                      badgeBg = '#EFF6FF';
+                      badgeColor = '#1D4ED8';
+                    } else if (idx === 1) {
+                      barBg = 'linear-gradient(90deg, #0284C7, #38BDF8)';
+                      badgeBg = '#F0F9FF';
+                      badgeColor = '#0284C7';
+                    } else if (idx === 2) {
+                      barBg = 'linear-gradient(90deg, #0F766E, #2DD4BF)';
+                      badgeBg = '#F0FDFA';
+                      badgeColor = '#0F766E';
+                    } else if (idx >= 6) {
+                      barBg = 'linear-gradient(90deg, #64748B, #94A3B8)';
+                      badgeBg = '#F1F5F9';
+                      badgeColor = '#475569';
+                    }
+
+                    return (
+                      <div
+                        key={item.banco}
+                        onClick={() => handleSelectBancoFromChart(item.banco)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '14px',
+                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          background: isSelected ? '#EFF6FF' : '#F8FAFC',
+                          border: isSelected ? '1.5px solid #3B82F6' : '1px solid #EDF2F7',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                          position: 'relative'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isSelected) e.currentTarget.style.background = '#F1F5F9';
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isSelected) e.currentTarget.style.background = '#F8FAFC';
+                        }}
+                        title={`Haga clic para filtrar expedientes del ${item.nombre_banco} (${item.banco})`}
+                      >
+                        {/* Código e Identificador del Banco */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '220px', flexShrink: 0 }}>
+                          <span style={{
+                            fontFamily: "'IBM Plex Mono', monospace",
+                            fontSize: '11px',
+                            fontWeight: 800,
+                            padding: '3px 7px',
+                            borderRadius: '5px',
+                            background: badgeBg,
+                            color: badgeColor,
+                            border: '1px solid rgba(0,0,0,0.06)'
+                          }}>
+                            {item.banco}
+                          </span>
+                          <span style={{
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            color: isSelected ? '#1E40AF' : '#1E293B',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis'
+                          }}>
+                            {item.nombre_banco}
+                          </span>
+                        </div>
+
+                        {/* Barra de Progreso / Volumen */}
+                        <div style={{ flex: 1, height: '18px', background: '#E2E8F0', borderRadius: '9px', overflow: 'hidden', position: 'relative' }}>
+                          <div
+                            style={{
+                              height: '100%',
+                              width: `${relativeWidth}%`,
+                              background: barBg,
+                              borderRadius: '9px',
+                              transition: 'width 0.4s cubic-bezier(0.4, 0, 0.2, 1)'
+                            }}
+                          />
+                        </div>
+
+                        {/* Cifras y Porcentaje */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexShrink: 0, minWidth: '240px', justifyContent: 'flex-end' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontSize: '10.5px', color: '#64748B', fontWeight: 600 }}>
+                              {item.total_expedientes} exp · {item.lotes_pendientes} lotes
+                            </span>
+                          </div>
+
+                          <div style={{ textAlign: 'right', minWidth: '95px' }}>
+                            <span style={{
+                              fontFamily: "'IBM Plex Mono', monospace",
+                              fontSize: '13px',
+                              fontWeight: 800,
+                              color: isSelected ? '#1D4ED8' : '#0F172A'
+                            }}>
+                              {item.planillas_pendientes.toLocaleString('es-VE')}
+                            </span>
+                            <span style={{ fontSize: '10px', color: '#64748B', marginLeft: '3px' }}>pln</span>
+                          </div>
+
+                          <span style={{
+                            fontFamily: "'IBM Plex Mono', monospace",
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            background: isSelected ? '#DBEAFE' : '#E2E8F0',
+                            color: isSelected ? '#1E40AF' : '#334155',
+                            minWidth: '46px',
+                            textAlign: 'center'
+                          }}>
+                            {item.porcentaje_planillas}%
+                          </span>
+
+                          {isSelected ? (
+                            <span style={{ fontSize: '10px', fontWeight: 800, color: '#2563EB', padding: '2px 6px', background: '#DBEAFE', borderRadius: '4px' }}>
+                              ✓ FILTRADO
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '10.5px', fontWeight: 700, color: '#94A3B8' }}>
+                              Filtrar ➔
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={{ padding: '20px', textAlign: 'center', color: '#6B7C90', fontSize: '13px' }}>
+                  No se encontraron bancos con planillas pendientes para los filtros seleccionados.
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         {/* ── Filter Bar ── */}
@@ -563,8 +922,8 @@ export const ReasignacionExpedientesView: React.FC = () => {
 
           {/* Botón Filtrar */}
           <button
-            onClick={fetchExpedientes}
-            disabled={loading}
+            onClick={handleRefreshAll}
+            disabled={loading || loadingBancos}
             style={{
               height: '36px',
               padding: '0 18px',
@@ -574,7 +933,7 @@ export const ReasignacionExpedientesView: React.FC = () => {
               border: 'none',
               fontSize: '13px',
               fontWeight: 700,
-              cursor: loading ? 'not-allowed' : 'pointer',
+              cursor: (loading || loadingBancos) ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               gap: '6px',

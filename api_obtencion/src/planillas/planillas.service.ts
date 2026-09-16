@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException, BadRequestException, Logger } from '
 import { DatabaseService } from '../database/database.service';
 import { PostgresService } from '../database/postgres.service';
 import { ConsultarExpedientesReasignacionDto, EjecutarReasignacionDto } from './dto/reasignacion.dto';
+import { getNombreCortoBanco } from '../bancos/bancos.service';
 import * as oracledb from 'oracledb';
 import * as bcrypt from 'bcryptjs';
 import * as fs from 'fs/promises';
@@ -2011,6 +2012,89 @@ export class PlanillasService {
         planillas_pendientes: Number(r.PLANILLAS_PENDIENTES || 0),
         monto_total: 0,
       })),
+    };
+  }
+
+  /**
+   * Obtiene la distribución y métricas de expedientes y planillas pendientes de conciliar por banco,
+   * permitiendo visualizar gráficamente qué bancos tienen mayor volumen represado en ABIERTA / PENDIENTE.
+   */
+  async getResumenBancosPendientesReasignacion(dto: ConsultarExpedientesReasignacionDto) {
+    const anho = dto.anho ? Number(dto.anho) : 2024;
+    const usuarioOrigen = dto.usuario_origen !== undefined ? dto.usuario_origen.trim() : 'GILLIAMS_0028';
+    const estadoWi = dto.estado_wi ? dto.estado_wi.trim().toUpperCase() : 'ABIERTA';
+
+    const binds: any = { anho };
+    let whereClauses = `WHERE W.ORGA_ID = '93' AND W.WFTA_TAREA_ID = 2061 AND W.ANHO = :anho AND W.WORKITEM = (
+      SELECT MAX(W2.WORKITEM)
+      FROM WFE_WORKFLOW.WF_WORK_ITEM W2
+      WHERE W2.WFEX_EXP_ID = W.WFEX_EXP_ID
+        AND W2.ANHO = W.ANHO
+        AND W2.ORGA_ID = W.ORGA_ID
+    )`;
+
+    if (usuarioOrigen && usuarioOrigen !== 'TODOS') {
+      whereClauses += ` AND UPPER(W.WFUS_USERS_ID) = UPPER(:usuarioOrigen)`;
+      binds.usuarioOrigen = usuarioOrigen;
+    }
+
+    if (estadoWi && estadoWi !== 'TODOS') {
+      whereClauses += ` AND UPPER(W.WI_ESTADO) = UPPER(:estadoWi)`;
+      binds.estadoWi = estadoWi;
+    } else {
+      whereClauses += ` AND W.WI_ESTADO IN ('ABIERTA', 'PENDIENTE')`;
+    }
+
+    if (dto.mes && dto.mes !== 'TODOS') {
+      const mesPadded = String(dto.mes).trim().padStart(2, '0');
+      whereClauses += ` AND TO_CHAR(L.FECHA_RECAUDACION, 'MM') = :mes`;
+      binds.mes = mesPadded;
+    }
+
+    const query = `
+      SELECT 
+        L.INFN_CODIGO AS BANCO,
+        COUNT(DISTINCT W.WFEX_EXP_ID) AS TOTAL_EXPEDIENTES,
+        COUNT(DISTINCT CASE WHEN L.ESTADO = 'P' THEN L.LOTE_ID END) AS LOTES_PENDIENTES,
+        NVL(SUM(CASE WHEN L.ESTADO = 'P' THEN L.TOTAL_PLN ELSE 0 END), 0) AS PLANILLAS_PENDIENTES
+      FROM WFE_WORKFLOW.WF_WORK_ITEM W
+      JOIN ORG_LIQ.LOTE L 
+        ON L.EXPEDIENTE = W.WFEX_EXP_ID 
+       AND L.ANHO = W.ANHO
+      ${whereClauses}
+      GROUP BY L.INFN_CODIGO
+      HAVING NVL(SUM(CASE WHEN L.ESTADO = 'P' THEN L.TOTAL_PLN ELSE 0 END), 0) > 0
+      ORDER BY PLANILLAS_PENDIENTES DESC
+    `;
+
+    const rows = await this.db.executeQuery<any>(query, binds);
+
+    const totalPlanillas = rows.reduce((acc, r) => acc + Number(r.PLANILLAS_PENDIENTES || 0), 0);
+    const totalExpedientes = rows.reduce((acc, r) => acc + Number(r.TOTAL_EXPEDIENTES || 0), 0);
+    const totalLotes = rows.reduce((acc, r) => acc + Number(r.LOTES_PENDIENTES || 0), 0);
+
+    const bancos = rows.map((r) => {
+      const pln = Number(r.PLANILLAS_PENDIENTES || 0);
+      const porcentaje = totalPlanillas > 0 ? Number(((pln / totalPlanillas) * 100).toFixed(2)) : 0;
+      const codBanco = String(r.BANCO || '').trim();
+      return {
+        banco: codBanco,
+        nombre_banco: getNombreCortoBanco(codBanco),
+        total_expedientes: Number(r.TOTAL_EXPEDIENTES || 0),
+        lotes_pendientes: Number(r.LOTES_PENDIENTES || 0),
+        planillas_pendientes: pln,
+        porcentaje_planillas: porcentaje,
+      };
+    });
+
+    return {
+      success: true,
+      total_bancos: bancos.length,
+      total_planillas_pendientes: totalPlanillas,
+      total_expedientes_pendientes: totalExpedientes,
+      total_lotes_pendientes: totalLotes,
+      banco_mayor_carga: bancos.length > 0 ? bancos[0] : null,
+      bancos,
     };
   }
 

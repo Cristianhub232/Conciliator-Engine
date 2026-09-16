@@ -45,7 +45,7 @@ const BANCOS_FALLBACK: Array<{ id: number; codigo_banco: string; nombre_banco: s
   { id: 29, codigo_banco: '601', nombre_banco: 'Instituto Municipal de Crédito Popular' },
 ];
 
-const NOMBRES_CORTOS: Record<string, string> = {
+export const NOMBRES_CORTOS: Record<string, string> = {
   '001': 'BANCO CENTRAL DE VENEZUELA',
   '102': 'BANCO DE VENEZUELA',
   '104': 'BANCO VENEZOLANO DE CRÉDITO',
@@ -76,6 +76,12 @@ const NOMBRES_CORTOS: Record<string, string> = {
   '191': 'BANCO NACIONAL DE CRÉDITO (BNC)',
   '601': 'INSTITUTO MUNICIPAL DE CRÉDITO POPULAR',
 };
+
+export function getNombreCortoBanco(codigo: string): string {
+  if (!codigo) return 'BANCO DESCONOCIDO';
+  const clean = String(codigo).trim().padStart(3, '0');
+  return NOMBRES_CORTOS[clean] || NOMBRES_CORTOS[codigo.trim()] || `BANCO ${codigo}`;
+}
 
 @Injectable()
 export class BancosService {

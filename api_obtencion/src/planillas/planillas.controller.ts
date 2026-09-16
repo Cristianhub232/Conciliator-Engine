@@ -436,6 +436,41 @@ export class PlanillasController {
     }
   }
 
+  @Get('reasignacion/resumen-bancos')
+  @ApiOperation({
+    summary: 'Obtener distribución y métricas de bancos y planillas pendientes de conciliar',
+    description: 'Calcula el volumen de planillas y expedientes pendientes agrupados por cada banco para representación gráfica y análisis de congestión.'
+  })
+  @ApiQuery({ name: 'usuario_origen', required: false, example: 'GILLIAMS_0028' })
+  @ApiQuery({ name: 'estado_wi', required: false, example: 'ABIERTA' })
+  @ApiQuery({ name: 'anho', required: false, example: 2024 })
+  @ApiQuery({ name: 'mes', required: false, example: 'TODOS' })
+  @ApiResponse({ status: 200, description: 'Resumen de carga de bancos y planillas pendientes obtenido' })
+  async getResumenBancosReasignacion(
+    @Query('usuario_origen') usuario_origen?: string,
+    @Query('estado_wi') estado_wi?: string,
+    @Query('anho') anho?: string,
+    @Query('mes') mes?: string,
+  ) {
+    try {
+      const dto: ConsultarExpedientesReasignacionDto = {
+        usuario_origen: usuario_origen || 'GILLIAMS_0028',
+        estado_wi: estado_wi || 'ABIERTA',
+        anho: anho ? parseInt(anho, 10) : 2024,
+        mes: mes && mes !== 'TODOS' ? mes.trim() : undefined,
+      };
+
+      const result = await this.planillasService.getResumenBancosPendientesReasignacion(dto);
+      return result;
+    } catch (error: any) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error al consultar resumen de bancos para reasignación', message: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   @Get('reasignacion/transcriptores')
   @ApiOperation({
     summary: 'Listar transcriptores ONT disponibles para reasignación',
