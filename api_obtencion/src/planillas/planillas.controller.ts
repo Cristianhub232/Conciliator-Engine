@@ -11,7 +11,9 @@ import {
 } from './dto/planillas-swagger.dto';
 import { 
   ConsultarExpedientesReasignacionDto, 
-  EjecutarReasignacionDto 
+  EjecutarReasignacionDto,
+  ConsultarExpedientesCierreDto,
+  EjecutarCierreMasivoDto 
 } from './dto/reasignacion.dto';
 
 function sanitizeBanco(banco?: string): string {
@@ -537,6 +539,55 @@ export class PlanillasController {
       if (error instanceof HttpException) throw error;
       throw new HttpException(
         { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error al consultar métricas de productividad por hora', message: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Get('cierre/pendientes')
+  @ApiOperation({
+    summary: 'Expedientes sin planillas pendientes listos para cierre en Workflow',
+    description: 'Obtiene los expedientes que tienen 0 planillas pendientes por conciliar (100% conciliados) pero siguen abiertos en SIGECOF.'
+  })
+  @ApiQuery({ name: 'anho', required: false, example: 2024, description: 'Año del expediente' })
+  @ApiQuery({ name: 'banco', required: false, example: '114', description: 'Código de banco' })
+  @ApiQuery({ name: 'usuario_asignado', required: false, example: 'GILLIAMS_0028', description: 'Usuario asignado' })
+  @ApiQuery({ name: 'mes', required: false, example: '05', description: 'Mes de recaudación' })
+  @ApiQuery({ name: 'search', required: false, example: '8379', description: 'Búsqueda por número de expediente' })
+  @ApiQuery({ name: 'limit', required: false, example: 100, description: 'Límite de registros' })
+  @ApiResponse({ status: 200, description: 'Listado de expedientes listos para cierre obtenido exitosamente' })
+  async getExpedientesListosParaCierre(@Query() query: ConsultarExpedientesCierreDto) {
+    try {
+      return await this.planillasService.consultarExpedientesListosParaCierre(query);
+    } catch (error: any) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error al consultar expedientes para cierre', message: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Post('cierre/ejecutar-masivo')
+  @ApiOperation({
+    summary: 'Cierre masivo de expedientes 100% conciliados',
+    description: 'Cierra formalmente los expedientes seleccionados en el Workflow (CG$WF_WORK_ITEM.upd), actualiza lotes y registra auditoría.'
+  })
+  @ApiResponse({ status: 200, description: 'Expedientes cerrados exitosamente' })
+  async ejecutarCierreExpedientesMasivo(@Body() payload: EjecutarCierreMasivoDto) {
+    if (!payload.expedientes || !Array.isArray(payload.expedientes) || payload.expedientes.length === 0) {
+      throw new HttpException(
+        { status: HttpStatus.BAD_REQUEST, error: 'Bad Request', message: 'Debe seleccionar al menos un expediente.' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    try {
+      return await this.planillasService.ejecutarCierreExpedientesMasivo(payload);
+    } catch (error: any) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error al ejecutar cierre de expedientes', message: error.message },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

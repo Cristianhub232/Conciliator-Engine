@@ -26,6 +26,7 @@ import { getBancoLabel } from '../services/bancosCatalog';
 import { IchiAgentWidget } from '../components/IchiAgentWidget';
 import { ReasignacionExpedientesView } from '../components/ReasignacionExpedientesView';
 import { ProductividadHorasView } from '../components/ProductividadHorasView';
+import { CierreExpedientesView } from '../components/CierreExpedientesView';
 
 
 function OrquestadorPageInner() {
@@ -103,6 +104,7 @@ function OrquestadorPageInner() {
     const tabLabels: Record<NavTab, string> = {
       'conciliacion': `Conciliación Masiva · Banco ${banco} (${fecha})`,
       'reasignacion': 'Reasignación de Expedientes (ABIERTA ➔ PENDIENTE)',
+      'cierre_expedientes': 'Cierre Operativo de Expedientes (100% Conciliados)',
       'productividad_hora': 'Monitoreo de Productividad por Hora (Tiempo Real)',
       'transcriptores': 'Auditoría de Transcriptores y Operadores',
       'expedientes': 'Explorador de Expedientes y Lotes',
@@ -566,6 +568,7 @@ function OrquestadorPageInner() {
       {/* Área Principal de Contenido */}
       <main className="main-viewport">
         {activeTab === 'reasignacion' && <ReasignacionExpedientesView />}
+        {activeTab === 'cierre_expedientes' && <CierreExpedientesView />}
         {activeTab === 'productividad_hora' && <ProductividadHorasView />}
         {activeTab === 'transcriptores' && <TranscriptoresView />}
         {activeTab === 'expedientes' && <ExpedientesExplorerView />}

@@ -86,3 +86,62 @@ export class EjecutarReasignacionDto {
   })
   observacion?: string;
 }
+
+export class ConsultarExpedientesCierreDto {
+  @ApiPropertyOptional({ 
+    description: 'Año del expediente (ej. 2024 o TODOS)', 
+    default: 2024 
+  })
+  anho?: number;
+
+  @ApiPropertyOptional({ 
+    description: 'Código de banco para filtrar (ej. 105, 114)', 
+    example: '114' 
+  })
+  banco?: string;
+
+  @ApiPropertyOptional({ 
+    description: 'Usuario asignado actual (ej. GILLIAMS_0028 o TODOS)', 
+    example: 'GILLIAMS_0028' 
+  })
+  usuario_asignado?: string;
+
+  @ApiPropertyOptional({ 
+    description: 'Mes de recaudación (ej. 01, 05, 07 o TODOS)', 
+    example: 'TODOS' 
+  })
+  mes?: string;
+
+  @ApiPropertyOptional({ 
+    description: 'Término de búsqueda rápida por número de expediente', 
+    example: '8379' 
+  })
+  search?: string;
+
+  @ApiPropertyOptional({ 
+    description: 'Límite de registros a retornar', 
+    default: 100 
+  })
+  limit?: number;
+}
+
+export class EjecutarCierreMasivoDto {
+  @ApiProperty({ 
+    description: 'Lista de expedientes a cerrar formalmente en Workflow', 
+    type: [ExpedienteSeleccionadoItemDto] 
+  })
+  expedientes: ExpedienteSeleccionadoItemDto[];
+
+  @ApiPropertyOptional({ 
+    description: 'Observación o justificación institucional del cierre', 
+    default: 'Cierre de expediente con planillas 100% conciliadas' 
+  })
+  observacion?: string;
+
+  @ApiPropertyOptional({ 
+    description: 'Usuario que ejecuta la acción en el sistema', 
+    default: 'ONT_SIR_BOT' 
+  })
+  usuario_operador?: string;
+}
+

@@ -1,7 +1,12 @@
 import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { PostgresService } from '../database/postgres.service';
-import { ConsultarExpedientesReasignacionDto, EjecutarReasignacionDto } from './dto/reasignacion.dto';
+import { 
+  ConsultarExpedientesReasignacionDto, 
+  EjecutarReasignacionDto,
+  ConsultarExpedientesCierreDto,
+  EjecutarCierreMasivoDto
+} from './dto/reasignacion.dto';
 import { getNombreCortoBanco } from '../bancos/bancos.service';
 import * as oracledb from 'oracledb';
 import * as bcrypt from 'bcryptjs';
@@ -2545,6 +2550,332 @@ export class PlanillasService {
         hora_pico: horaPico,
         promedio_por_conciliador: promedioConciliador,
       }
+    };
+  }
+
+  /**
+   * Consulta expedientes activos en el Workflow (Tarea 2061, ABIERTA o PENDIENTE)
+   * que ya no poseen planillas pendientes de conciliar (100% procesadas),
+   * listos para su cierre formal en SIGECOF.
+   */
+  async consultarExpedientesListosParaCierre(dto: ConsultarExpedientesCierreDto) {
+    const anho = dto.anho !== undefined && String(dto.anho).toUpperCase() !== 'TODOS' ? Number(dto.anho) : 2024;
+    const limit = dto.limit ? Math.min(Math.max(Number(dto.limit), 1), 1000) : 100;
+    const banco = dto.banco ? dto.banco.trim() : '';
+    const usuario = dto.usuario_asignado && dto.usuario_asignado !== 'TODOS' ? dto.usuario_asignado.trim() : '';
+    const search = dto.search ? dto.search.trim() : '';
+
+    const binds: any = { limit };
+    let whereClauses = `WHERE W.ORGA_ID = '93' AND W.WFTA_TAREA_ID = 2061 AND W.WI_ESTADO IN ('ABIERTA', 'PENDIENTE') AND W.WORKITEM = (
+      SELECT MAX(W2.WORKITEM)
+      FROM WFE_WORKFLOW.WF_WORK_ITEM W2
+      WHERE W2.WFEX_EXP_ID = W.WFEX_EXP_ID
+        AND W2.ANHO = W.ANHO
+        AND W2.ORGA_ID = W.ORGA_ID
+    )`;
+
+    if (anho) {
+      whereClauses += ` AND W.ANHO = :anho`;
+      binds.anho = anho;
+    }
+
+    if (usuario) {
+      whereClauses += ` AND UPPER(W.WFUS_USERS_ID) = UPPER(:usuario)`;
+      binds.usuario = usuario;
+    }
+
+    if (banco && banco !== 'TODOS') {
+      whereClauses += ` AND L.INFN_CODIGO = :banco`;
+      binds.banco = banco;
+    }
+
+    if (dto.mes && dto.mes !== 'TODOS') {
+      const mesPadded = String(dto.mes).trim().padStart(2, '0');
+      whereClauses += ` AND TO_CHAR(L.FECHA_RECAUDACION, 'MM') = :mes`;
+      binds.mes = mesPadded;
+    }
+
+    if (search) {
+      whereClauses += ` AND TO_CHAR(W.WFEX_EXP_ID) LIKE :searchExp`;
+      binds.searchExp = `%${search}%`;
+    }
+
+    const query = `
+      SELECT * FROM (
+        SELECT 
+          W.WFEX_EXP_ID AS EXPEDIENTE,
+          W.ANHO,
+          W.WORKITEM,
+          W.WFUS_USERS_ID AS USUARIO_ASIGNADO,
+          W.WI_ESTADO AS ESTADO_WI,
+          W.WI_NOMBRE,
+          W.WI_DESCRIPCION,
+          TO_CHAR(W.WI_FECHA_CREACION, 'YYYY-MM-DD HH24:MI:SS') AS FECHA_ASIGNACION,
+          MAX(L.INFN_CODIGO) AS BANCO,
+          TO_CHAR(MAX(L.FECHA_RECAUDACION), 'YYYY-MM-DD') AS FECHA_RECAUDACION,
+          COUNT(DISTINCT L.LOTE_ID) AS TOTAL_LOTES,
+          COUNT(DISTINCT CASE WHEN L.ESTADO IN ('C', 'V') THEN L.LOTE_ID END) AS LOTES_CONCILIADOS,
+          NVL(SUM(L.TOTAL_PLN), 0) AS TOTAL_PLANILLAS,
+          NVL(SUM(CASE WHEN L.ESTADO = 'P' THEN L.TOTAL_PLN ELSE 0 END), 0) AS PLANILLAS_PENDIENTES
+        FROM WFE_WORKFLOW.WF_WORK_ITEM W
+        JOIN ORG_LIQ.LOTE L 
+          ON L.EXPEDIENTE = W.WFEX_EXP_ID 
+         AND L.ANHO = W.ANHO
+        ${whereClauses}
+        GROUP BY 
+          W.WFEX_EXP_ID, W.ANHO, W.WORKITEM, W.WFUS_USERS_ID, 
+          W.WI_ESTADO, W.WI_NOMBRE, W.WI_DESCRIPCION, W.WI_FECHA_CREACION
+        HAVING NVL(SUM(CASE WHEN L.ESTADO = 'P' THEN L.TOTAL_PLN ELSE 0 END), 0) = 0
+           AND NVL(SUM(L.TOTAL_PLN), 0) > 0
+        ORDER BY W.WFEX_EXP_ID DESC
+      )
+      WHERE ROWNUM <= :limit
+    `;
+
+    const rows = await this.db.executeQuery<any>(query, binds);
+
+    // Calcular KPIs generales consolidados sin limit
+    const kpiSummaryQuery = `
+      SELECT 
+        COUNT(DISTINCT EXPEDIENTE) AS TOTAL_EXPEDIENTES,
+        NVL(SUM(TOTAL_PLANILLAS), 0) AS TOTAL_PLANILLAS,
+        NVL(SUM(TOTAL_LOTES), 0) AS TOTAL_LOTES,
+        COUNT(DISTINCT BANCO) AS TOTAL_BANCOS
+      FROM (
+        SELECT 
+          W.WFEX_EXP_ID AS EXPEDIENTE,
+          MAX(L.INFN_CODIGO) AS BANCO,
+          COUNT(DISTINCT L.LOTE_ID) AS TOTAL_LOTES,
+          NVL(SUM(L.TOTAL_PLN), 0) AS TOTAL_PLANILLAS
+        FROM WFE_WORKFLOW.WF_WORK_ITEM W
+        JOIN ORG_LIQ.LOTE L 
+          ON L.EXPEDIENTE = W.WFEX_EXP_ID 
+         AND L.ANHO = W.ANHO
+        ${whereClauses}
+        GROUP BY W.WFEX_EXP_ID
+        HAVING NVL(SUM(CASE WHEN L.ESTADO = 'P' THEN L.TOTAL_PLN ELSE 0 END), 0) = 0
+           AND NVL(SUM(L.TOTAL_PLN), 0) > 0
+      )
+    `;
+
+    let kpis = {
+      total_expedientes: 0,
+      total_planillas_conciliadas: 0,
+      total_lotes: 0,
+      total_bancos: 0,
+    };
+
+    try {
+      const kpiBinds: any = {};
+      if (binds.anho) kpiBinds.anho = binds.anho;
+      if (binds.usuario) kpiBinds.usuario = binds.usuario;
+      if (binds.banco) kpiBinds.banco = binds.banco;
+      if (binds.mes) kpiBinds.mes = binds.mes;
+      if (binds.searchExp) kpiBinds.searchExp = binds.searchExp;
+
+      const kpiRes = await this.db.executeQuery<any>(kpiSummaryQuery, kpiBinds);
+      if (kpiRes && kpiRes.length > 0) {
+        kpis = {
+          total_expedientes: Number(kpiRes[0].TOTAL_EXPEDIENTES || 0),
+          total_planillas_conciliadas: Number(kpiRes[0].TOTAL_PLANILLAS || 0),
+          total_lotes: Number(kpiRes[0].TOTAL_LOTES || 0),
+          total_bancos: Number(kpiRes[0].TOTAL_BANCOS || 0),
+        };
+      }
+    } catch (e: any) {
+      this.logger.warn(`Aviso al obtener KPIs de expedientes listos para cierre: ${e.message}`);
+    }
+
+    return {
+      success: true,
+      total: rows.length,
+      kpis,
+      data: rows.map((r) => {
+        const codBanco = String(r.BANCO || '').trim();
+        return {
+          expediente: Number(r.EXPEDIENTE),
+          anho: Number(r.ANHO),
+          workitem: Number(r.WORKITEM),
+          usuario_asignado: r.USUARIO_ASIGNADO,
+          estado_wi: r.ESTADO_WI,
+          wi_nombre: r.WI_NOMBRE,
+          wi_descripcion: r.WI_DESCRIPCION,
+          fecha_asignacion: r.FECHA_ASIGNACION,
+          banco: codBanco,
+          nombre_banco: getNombreCortoBanco(codBanco),
+          fecha_recaudacion: r.FECHA_RECAUDACION,
+          total_lotes: Number(r.TOTAL_LOTES || 0),
+          lotes_conciliados: Number(r.LOTES_CONCILIADOS || 0),
+          lotes_pendientes: 0,
+          total_planillas: Number(r.TOTAL_PLANILLAS || 0),
+          planillas_pendientes: 0,
+          estado_conciliacion: '100% CONCILIADO',
+        };
+      }),
+    };
+  }
+
+  /**
+   * Cierra de forma masiva o individual los expedientes seleccionados que ya no tienen
+   * planillas pendientes de conciliar.
+   * Ejecuta la actualización in-situ mediante CG$WF_WORK_ITEM.upd, finaliza lotes en ORG_LIQ.LOTE
+   * e inserta el evento de auditoría en WF_AUDITA_EXPEDIENTES.
+   */
+  async ejecutarCierreExpedientesMasivo(dto: EjecutarCierreMasivoDto) {
+    const { expedientes, observacion, usuario_operador } = dto;
+
+    if (!expedientes || !Array.isArray(expedientes) || expedientes.length === 0) {
+      throw new BadRequestException('Debe seleccionar al menos un expediente para cerrar.');
+    }
+
+    // Deduplicar
+    const seen = new Set<string>();
+    const expedientesUnicos = expedientes.filter((e) => {
+      const key = `${e.expediente}-${e.anho}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    if (expedientesUnicos.length > 500) {
+      throw new BadRequestException('El límite máximo por lote de cierre es de 500 expedientes.');
+    }
+
+    const operadorFinal = usuario_operador || 'ONT_SIR_BOT';
+    const rawObs = observacion || `Cierre formal de expediente 100% conciliado por ${operadorFinal}`;
+    let bufObs = Buffer.from(rawObs, 'utf-8');
+    if (bufObs.length > 500) {
+      bufObs = bufObs.subarray(0, 500);
+    }
+    const observacionFinal = bufObs.toString('utf-8').replace(/\uFFFD$/, '');
+
+    const cerradosExitosos: any[] = [];
+    const cerradosFallidos: any[] = [];
+
+    const writeConn = await this.db.getConnection();
+
+    try {
+      for (const item of expedientesUnicos) {
+        const expNum = Number(item.expediente);
+        const anhoNum = Number(item.anho || 2024);
+        const orgaId = (item as any).orga_id || '93';
+
+        try {
+          // 1. Detectar WorkItem activo actual
+          const wiQuery = `
+            SELECT WORKITEM, WFEX_EXP_ID, ANHO, ORGA_ID, WI_NOMBRE, WI_DESCRIPCION, WI_ORIGEN,
+                   WI_ESTADO, WFUS_USERS_ID, WFTA_TAREA_ID
+            FROM WFE_WORKFLOW.WF_WORK_ITEM
+            WHERE WFEX_EXP_ID = :expNum AND ANHO = :anhoNum AND ORGA_ID = :orgaId
+            ORDER BY WORKITEM ASC
+          `;
+          const currentWis = await this.db.executeQuery<any>(wiQuery, { expNum, anhoNum, orgaId });
+
+          const activeWi =
+            currentWis.find(
+              (w) =>
+                (w.WI_ESTADO === 'ABIERTA' || w.WI_ESTADO === 'PENDIENTE') &&
+                (Number(w.WFTA_TAREA_ID) === 2061 || Number(w.WFTA_TAREA_ID) === 2060),
+            ) || currentWis[currentWis.length - 1];
+
+          const currentWiNum = activeWi ? Number(activeWi.WORKITEM) : item.workitem || null;
+
+          if (!currentWiNum) {
+            throw new Error(`No se pudo determinar el WorkItem activo para el expediente ${expNum}.`);
+          }
+
+          // 2. Finalizar lotes pendientes en ORG_LIQ.LOTE si alguno estuviera en 'P' pasarlo a 'V'
+          await writeConn.execute(
+            `UPDATE ORG_LIQ.LOTE
+             SET ESTADO = 'V'
+             WHERE EXPEDIENTE = :expNum AND ANHO = :anhoNum AND ESTADO = 'P'`,
+            { expNum, anhoNum },
+            { autoCommit: false },
+          );
+
+          // 3. Cerrar in-situ mediante paquete oficial Oracle Designer CG$WF_WORK_ITEM (AUTHID DEFINER)
+          await writeConn.execute(
+            `DECLARE
+               v_rec WFE_WORKFLOW.CG$WF_WORK_ITEM.cg$row_type;
+               v_ind WFE_WORKFLOW.CG$WF_WORK_ITEM.cg$ind_type;
+             BEGIN
+               v_rec.WORKITEM := :currentWiNum;
+               v_rec.ANHO := :anhoNum;
+               v_rec.ORGA_ID := :orgaId;
+               v_rec.WFEX_EXP_ID := :expNum;
+               
+               WFE_WORKFLOW.CG$WF_WORK_ITEM.slct(v_rec);
+               
+               v_rec.WI_ESTADO := 'CERRADA';
+               v_ind.WI_ESTADO := TRUE;
+               
+               v_rec.WI_FECHA_CIERRE := SYSDATE;
+               v_ind.WI_FECHA_CIERRE := TRUE;
+               
+               WFE_WORKFLOW.CG$WF_WORK_ITEM.upd(v_rec, v_ind);
+             END;`,
+            {
+              expNum,
+              anhoNum,
+              orgaId,
+              currentWiNum,
+            },
+            { autoCommit: false },
+          );
+
+          // 4. Registro de auditoría institucional
+          try {
+            await writeConn.execute(
+              `INSERT INTO WFE_WORKFLOW.WF_AUDITA_EXPEDIENTES (
+                 USUARIO_ORACLE, ORGANISMO_ID, USUARIO_APLICATIVO, EXPEDIENTE_ID, FECHA_HORA
+               ) VALUES (
+                 'ONT_SIR_BOT', '093', :operador, :expedienteStr, TO_CHAR(SYSDATE, 'DD/MM/YYYY:HH24:MI:SS')
+               )`,
+              {
+                operador: operadorFinal.substring(0, 15),
+                expedienteStr: String(expNum).substring(0, 10),
+              },
+              { autoCommit: false },
+            );
+          } catch (auditErr: any) {
+            this.logger.warn(`Aviso auditoría cierre expediente ${expNum}: ${auditErr.message}`);
+          }
+
+          cerradosExitosos.push({
+            expediente: expNum,
+            anho: anhoNum,
+            workitem: currentWiNum,
+            estado: 'CERRADA',
+          });
+        } catch (expErr: any) {
+          cerradosFallidos.push({
+            expediente: expNum,
+            anho: anhoNum,
+            error: expErr.message,
+          });
+        }
+      }
+
+      await writeConn.commit();
+    } catch (txErr: any) {
+      await writeConn.rollback();
+      throw new Error(`Fallo en la transacción de cierre masivo: ${txErr.message}`);
+    } finally {
+      try {
+        await writeConn.close();
+      } catch (closeErr) {}
+    }
+
+    return {
+      success: cerradosExitosos.length > 0,
+      total_procesados: expedientesUnicos.length,
+      total_exitosos: cerradosExitosos.length,
+      total_fallidos: cerradosFallidos.length,
+      exitosos: cerradosExitosos,
+      fallidos: cerradosFallidos,
+      mensaje: `Cierre procesado: ${cerradosExitosos.length} expediente(s) cerrado(s) exitosamente${
+        cerradosFallidos.length > 0 ? `, ${cerradosFallidos.length} con incidencias` : ''
+      }.`,
     };
   }
 }
