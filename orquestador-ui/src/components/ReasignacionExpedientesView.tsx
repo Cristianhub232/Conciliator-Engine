@@ -92,10 +92,22 @@ export const ReasignacionExpedientesView: React.FC = () => {
 
   // Ejecución de Reasignación
   const [selectedTranscriptor, setSelectedTranscriptor] = useState<string>('');
+  const [filtroConciliador, setFiltroConciliador] = useState<string>('');
   const [observacion, setObservacion] = useState<string>('Reasignación de expedientes para balanceo de carga operativa');
   const [executing, setExecuting] = useState<boolean>(false);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
   const [lastResult, setLastResult] = useState<any | null>(null);
+
+  // Filtrado de conciliadores por búsqueda rápida (nombre o ID de usuario)
+  const conciliadoresFiltrados = useMemo(() => {
+    if (!filtroConciliador.trim()) return transcriptores;
+    const q = filtroConciliador.trim().toLowerCase();
+    return transcriptores.filter(
+      (t) =>
+        t.nombre_completo.toLowerCase().includes(q) ||
+        t.users_id.toLowerCase().includes(q)
+    );
+  }, [transcriptores, filtroConciliador]);
 
   // Modal de detalle del expediente
   const [selectedModalExpId, setSelectedModalExpId] = useState<string | number | null>(null);
@@ -337,13 +349,13 @@ export const ReasignacionExpedientesView: React.FC = () => {
           {/* Card 4: Transcriptores disponibles */}
           <div style={{ padding: '15px 16px', background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '10px' }}>
             <div style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.1em', color: '#8797A8' }}>
-              TRANSCRIPTORES ONT
+              CONCILIADORES ONT
             </div>
             <div style={{ marginTop: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '27px', fontWeight: 600, color: '#14263C' }}>
               {transcriptores.length}
             </div>
             <div style={{ marginTop: '5px', fontSize: '11.5px', fontWeight: 600, color: '#6B7C90' }}>
-              Usuarios activos para recepción de carga
+              Analistas con rol Conciliador (Org 93/63)
             </div>
           </div>
         </div>
@@ -667,37 +679,55 @@ export const ReasignacionExpedientesView: React.FC = () => {
             paddingTop: '10px',
             borderTop: '1px solid #EDF1F5'
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: '320px' }}>
-              <span style={{ fontSize: '12px', fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: '340px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
                 <UserCheck size={16} color="#1E5C99" />
-                Asignar a:
+                Asignar a Conciliador:
               </span>
-              <select
-                value={selectedTranscriptor}
-                onChange={(e) => setSelectedTranscriptor(e.target.value)}
-                disabled={loadingTranscriptores}
-                style={{
-                  height: '36px',
-                  padding: '0 10px',
-                  borderRadius: '8px',
-                  border: '1px solid #E1E7EE',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  color: '#14263C',
-                  background: '#FFFFFF',
-                  flex: 1,
-                  maxWidth: '420px',
-                  cursor: 'pointer',
-                  outline: 'none'
-                }}
-              >
-                <option value="">-- Seleccionar Transcriptor ONT --</option>
-                {transcriptores.map((t) => (
-                  <option key={t.users_id} value={t.users_id}>
-                    {t.nombre_completo} ({t.users_id}) — {t.expedientes_asignados} exp
-                  </option>
-                ))}
-              </select>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, maxWidth: '480px' }}>
+                <input
+                  type="text"
+                  placeholder="Buscar conciliador..."
+                  value={filtroConciliador}
+                  onChange={(e) => setFiltroConciliador(e.target.value)}
+                  style={{
+                    height: '36px',
+                    width: '150px',
+                    padding: '0 10px',
+                    borderRadius: '8px',
+                    border: '1px solid #E1E7EE',
+                    fontSize: '12.5px',
+                    color: '#14263C',
+                    background: '#FFFFFF',
+                    outline: 'none'
+                  }}
+                />
+                <select
+                  value={selectedTranscriptor}
+                  onChange={(e) => setSelectedTranscriptor(e.target.value)}
+                  disabled={loadingTranscriptores}
+                  style={{
+                    height: '36px',
+                    padding: '0 10px',
+                    borderRadius: '8px',
+                    border: '1px solid #E1E7EE',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    color: '#14263C',
+                    background: '#FFFFFF',
+                    flex: 1,
+                    cursor: 'pointer',
+                    outline: 'none'
+                  }}
+                >
+                  <option value="">-- Seleccionar Conciliador ({conciliadoresFiltrados.length}) --</option>
+                  {conciliadoresFiltrados.map((t) => (
+                    <option key={t.users_id} value={t.users_id}>
+                      {t.nombre_completo} ({t.users_id}) — {t.expedientes_asignados} exp
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             {/* BOTÓN PROMINENTE INSTITUCIONAL */}
@@ -934,9 +964,26 @@ export const ReasignacionExpedientesView: React.FC = () => {
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {/* Selector de Transcriptor Destino */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '11.5px', fontWeight: 700, color: '#475569' }}>
-              Asignar a:
+            <span style={{ fontSize: '11.5px', fontWeight: 700, color: '#475569', whiteSpace: 'nowrap' }}>
+              Asignar a Conciliador:
             </span>
+            <input
+              type="text"
+              placeholder="Buscar..."
+              value={filtroConciliador}
+              onChange={(e) => setFiltroConciliador(e.target.value)}
+              style={{
+                height: '36px',
+                width: '120px',
+                padding: '0 8px',
+                borderRadius: '8px',
+                border: '1px solid #E1E7EE',
+                fontSize: '12px',
+                color: '#14263C',
+                background: '#ffffff',
+                outline: 'none'
+              }}
+            />
             <select
               value={selectedTranscriptor}
               onChange={(e) => setSelectedTranscriptor(e.target.value)}
@@ -950,13 +997,13 @@ export const ReasignacionExpedientesView: React.FC = () => {
                 fontWeight: 600,
                 color: '#14263C',
                 background: '#ffffff',
-                minWidth: '260px',
+                minWidth: '240px',
                 cursor: 'pointer',
                 outline: 'none'
               }}
             >
-              <option value="">-- Seleccionar Transcriptor ONT --</option>
-              {transcriptores.map((t) => (
+              <option value="">-- Seleccionar Conciliador ({conciliadoresFiltrados.length}) --</option>
+              {conciliadoresFiltrados.map((t) => (
                 <option key={t.users_id} value={t.users_id}>
                   {t.nombre_completo} ({t.users_id}) — {t.expedientes_asignados} exp
                 </option>
@@ -1054,7 +1101,7 @@ export const ReasignacionExpedientesView: React.FC = () => {
                 <ul style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '4px', color: '#3D4F66' }}>
                   <li>Expedientes a transferir: <strong style={{ color: '#14263C' }}>{selectedKeys.size}</strong></li>
                   <li>Planillas estimadas: <strong style={{ color: '#14263C' }}>{totalPlanillasSeleccionadas.toLocaleString('es-VE')}</strong></li>
-                  <li>Nuevo transcriptor destino: <strong style={{ color: '#14263C' }}>{targetTranscriptorObj?.nombre_completo || selectedTranscriptor}</strong> ({selectedTranscriptor})</li>
+                  <li>Nuevo conciliador destino: <strong style={{ color: '#14263C' }}>{targetTranscriptorObj?.nombre_completo || selectedTranscriptor}</strong> ({selectedTranscriptor})</li>
                   <li>WorkItem actual se marcará como <strong>CERRADA</strong> y se generará uno nuevo con <strong>WI_ESTADO = &apos;PENDIENTE&apos;</strong>.</li>
                 </ul>
               </div>

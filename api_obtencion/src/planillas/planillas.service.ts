@@ -2015,8 +2015,9 @@ export class PlanillasService {
   }
 
   /**
-   * Obtiene la nómina de transcriptores / analistas habilitados en ONT para reasignación de expedientes,
-   * incluyendo su carga actual de trabajo (expedientes en proceso).
+   * Obtiene la nómina de analistas conciliadores habilitados en ONT para reasignación de expedientes,
+   * filtrando exclusivamente por el rol de CONCILIADOR (R_TNIN_VALIDA / R_TNIN_VALIDA_2 / R_TNIN_REVISOR / rol con CONCIL)
+   * e incluyendo su carga actual de trabajo (expedientes en proceso).
    */
   async getTranscriptoresReasignacion() {
     const query = `
@@ -2027,13 +2028,14 @@ export class PlanillasService {
         TRIM(NVL(U.USERS_NOMBRE_CORTO, '') || ' ' || NVL(U.USERS_NOMBRE_LARGO, '')) AS NOMBRE_COMPLETO,
         U.USERS_STATUS,
         NVL(U.ORGA_ID, '93') AS ORGA_ID,
+        'ANALISTA CONCILIADOR' AS ROL_NOMBRE,
         NVL(CARGA.EXPEDIENTES_ASIGNADOS, 0) AS EXPEDIENTES_ASIGNADOS
       FROM WFE_WORKFLOW.WF_USERS U
       LEFT JOIN (
         SELECT WI.WFUS_USERS_ID, 
                COUNT(DISTINCT WI.WFEX_EXP_ID) AS EXPEDIENTES_ASIGNADOS
         FROM WFE_WORKFLOW.WF_WORK_ITEM WI
-        WHERE WI.ORGA_ID = '93'
+        WHERE WI.ORGA_ID IN ('93', '093', '63', '063')
           AND WI.WFTA_TAREA_ID = 2061
           AND WI.WI_ESTADO IN ('ABIERTA', 'PENDIENTE')
           AND WI.WORKITEM = (
@@ -2046,7 +2048,11 @@ export class PlanillasService {
         GROUP BY WI.WFUS_USERS_ID
       ) CARGA ON CARGA.WFUS_USERS_ID = U.USERS_ID
       WHERE U.USERS_STATUS = 'A'
-        AND (CARGA.EXPEDIENTES_ASIGNADOS > 0 OR U.ORGA_ID IN ('93', '093'))
+        AND U.ORGA_ID IN ('93', '093', '63', '063')
+        AND (
+          U.WFRO_ROLE_ID IN ('R_TNIN_VALIDA', 'R_TNIN_VALIDA_2', 'R_TNIN_REVISOR')
+          OR UPPER(U.WFRO_ROLE_ID) LIKE '%CONCIL%'
+        )
       ORDER BY CARGA.EXPEDIENTES_ASIGNADOS DESC, NOMBRE_COMPLETO ASC
     `;
 
@@ -2060,6 +2066,7 @@ export class PlanillasService {
         nombre_largo: u.NOMBRE_LARGO || '',
         nombre_completo: u.NOMBRE_COMPLETO || u.USERS_ID,
         orga_id: u.ORGA_ID,
+        rol: u.ROL_NOMBRE || 'ANALISTA CONCILIADOR',
         expedientes_asignados: Number(u.EXPEDIENTES_ASIGNADOS || 0),
       })),
     };
@@ -2096,16 +2103,22 @@ export class PlanillasService {
 
     const targetUser = nuevo_transcriptor.trim();
 
-    // 2. Validar que el nuevo transcriptor exista y esté activo en SIGECOF (Caso 7)
+    // 2. Validar que el nuevo transcriptor exista, esté activo y tenga rol de Conciliador en SIGECOF (Caso 7)
     const userCheckQuery = `
-      SELECT USERS_ID, USERS_NOMBRE_CORTO, USERS_NOMBRE_LARGO, USERS_STATUS
-      FROM WFE_WORKFLOW.WF_USERS
-      WHERE UPPER(USERS_ID) = UPPER(:targetUser) AND USERS_STATUS = 'A'
+      SELECT U.USERS_ID, U.USERS_NOMBRE_CORTO, U.USERS_NOMBRE_LARGO, U.USERS_STATUS, U.ORGA_ID, 'ANALISTA CONCILIADOR' AS ROLE_NOMBRE
+      FROM WFE_WORKFLOW.WF_USERS U
+      WHERE UPPER(U.USERS_ID) = UPPER(:targetUser) 
+        AND U.USERS_STATUS = 'A'
+        AND U.ORGA_ID IN ('93', '093', '63', '063')
+        AND (
+          U.WFRO_ROLE_ID IN ('R_TNIN_VALIDA', 'R_TNIN_VALIDA_2', 'R_TNIN_REVISOR')
+          OR UPPER(U.WFRO_ROLE_ID) LIKE '%CONCIL%'
+        )
     `;
     const userRows = await this.db.executeQuery<any>(userCheckQuery, { targetUser });
     if (!userRows || userRows.length === 0) {
       throw new BadRequestException(
-        `El transcriptor destino '${targetUser}' no existe o no se encuentra activo en SIGECOF.`,
+        `El transcriptor destino '${targetUser}' no existe, no está activo o no posee el rol de Conciliador en el organismo.`,
       );
     }
     const targetUserData = userRows[0];
