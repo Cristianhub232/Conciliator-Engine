@@ -17,7 +17,9 @@ import {
   Sparkles,
   Layers,
   ArrowUpDown,
-  Filter
+  Filter,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 
 interface ConciliadorRow {
@@ -67,6 +69,26 @@ export const ProductividadHorasView: React.FC = () => {
   const [sortField, setSortField] = useState<'total' | 'nombre'>('total');
   const [sortAsc, setSortAsc] = useState<boolean>(false);
 
+  // Exclusión visual y contable de transcriptores ("Ojito")
+  const [excludedUsers, setExcludedUsers] = useState<Set<string>>(new Set());
+  const [hideExcludedRows, setHideExcludedRows] = useState<boolean>(false);
+
+  const toggleExcludeUser = (userId: string) => {
+    setExcludedUsers(prev => {
+      const next = new Set(prev);
+      if (next.has(userId)) {
+        next.delete(userId);
+      } else {
+        next.add(userId);
+      }
+      return next;
+    });
+  };
+
+  const resetExcludedUsers = () => {
+    setExcludedUsers(new Set());
+  };
+
   const fetchData = useCallback(async (targetFecha: string = fecha, isSilent = false) => {
     if (!isSilent) setLoading(true);
     setError(null);
@@ -100,10 +122,63 @@ export const ProductividadHorasView: React.FC = () => {
     return () => clearInterval(interval);
   }, [autoRefresh, fecha, fetchData]);
 
+  // Conciliadores no excluidos para recalcular dinámicamente totales y KPIs
+  const activeConciliadores = useMemo(() => {
+    if (!data?.conciliadores) return [];
+    return data.conciliadores.filter(c => !excludedUsers.has(c.users_id));
+  }, [data, excludedUsers]);
+
+  // Totales y KPIs dinámicos calculados exclusivamente sobre los conciliadores no excluidos
+  const activeTotals = useMemo(() => {
+    if (!data) {
+      return {
+        granTotal: 0,
+        totalesPorHora: {} as Record<string, number>,
+        horaPico: { hora: '—', total: 0 },
+        activos: 0,
+        promedio: 0,
+      };
+    }
+
+    let granTotal = 0;
+    const totalesPorHora: Record<string, number> = {};
+    data.horas.forEach(h => { totalesPorHora[h] = 0; });
+    let activos = 0;
+
+    activeConciliadores.forEach(c => {
+      granTotal += c.total_usuario;
+      if (c.total_usuario > 0) activos++;
+      data.horas.forEach(h => {
+        totalesPorHora[h] = (totalesPorHora[h] || 0) + (c.horas[h] || 0);
+      });
+    });
+
+    let horaPico = { hora: '—', total: 0 };
+    Object.entries(totalesPorHora).forEach(([h, val]) => {
+      if (val > horaPico.total) {
+        horaPico = { hora: `${h}:00`, total: val };
+      }
+    });
+
+    const promedio = activos > 0 ? Math.round(granTotal / activos) : 0;
+
+    return {
+      granTotal,
+      totalesPorHora,
+      horaPico,
+      activos,
+      promedio,
+    };
+  }, [data, activeConciliadores]);
+
   // Filtrado y ordenamiento de conciliadores
   const conciliadoresFiltrados = useMemo(() => {
     if (!data?.conciliadores) return [];
     let list = [...data.conciliadores];
+
+    if (hideExcludedRows) {
+      list = list.filter(c => !excludedUsers.has(c.users_id));
+    }
 
     if (searchUser.trim()) {
       const q = searchUser.trim().toLowerCase();
@@ -125,14 +200,15 @@ export const ProductividadHorasView: React.FC = () => {
     });
 
     return list;
-  }, [data, searchUser, sortField, sortAsc]);
+  }, [data, searchUser, sortField, sortAsc, hideExcludedRows, excludedUsers]);
 
-  // Exportar a CSV
+  // Exportar a CSV respetando exclusiones
   const exportToCsv = () => {
     if (!data || !data.conciliadores.length) return;
 
+    const visibleList = conciliadoresFiltrados.filter(c => !excludedUsers.has(c.users_id));
     const headers = ['#', 'ANALISTA', 'USUARIO SIGECOF', ...data.horas.map(h => `${h}:00`), 'TOTAL DÍA'];
-    const rows = conciliadoresFiltrados.map((c, idx) => [
+    const rows = visibleList.map((c, idx) => [
       idx + 1,
       `"${c.nombre_completo || c.nombre}"`,
       c.users_id,
@@ -143,21 +219,22 @@ export const ProductividadHorasView: React.FC = () => {
     // Fila total
     const totalRow = [
       '',
-      '"TOTAL GENERAL"',
+      '"TOTAL GENERAL CONTABILIZADO"',
       '',
-      ...data.horas.map(h => data.totales_por_hora[h] || 0),
-      data.gran_total
+      ...data.horas.map(h => activeTotals.totalesPorHora[h] || 0),
+      activeTotals.granTotal
     ];
 
     const csvContent = [
       `"REPORTE DE TRANSCRIPCIÓN Y CONCILIACIÓN POR HORA"`,
       `"FECHA: ${data.fecha_consultada}"`,
-      `"TOTAL PLANILLAS: ${data.gran_total}"`,
+      `"TOTAL PLANILLAS CONTABILIZADAS: ${activeTotals.granTotal}"`,
+      excludedUsers.size > 0 ? `"USUARIOS EXCLUIDOS: ${Array.from(excludedUsers).join(', ')}"` : '',
       '',
       headers.join(';'),
       ...rows.map(r => r.join(';')),
       totalRow.join(';')
-    ].join('\r\n');
+    ].filter(Boolean).join('\r\n');
 
     const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -412,7 +489,7 @@ export const ProductividadHorasView: React.FC = () => {
           </div>
         )}
 
-        {/* ── KPI Cards ── */}
+        {/* ── KPI Cards (Recalculados dinámicamente) ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
           {/* Card 1: Total Planillas */}
           <div style={{ padding: '16px 18px', background: '#ffffff', border: '1px solid #E6EBF1', borderRadius: '12px' }}>
@@ -425,10 +502,15 @@ export const ProductividadHorasView: React.FC = () => {
               </div>
             </div>
             <div style={{ marginTop: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '26px', fontWeight: 700, color: '#14263C' }}>
-              {data?.gran_total.toLocaleString('es-VE') || 0}
+              {activeTotals.granTotal.toLocaleString('es-VE')}
             </div>
-            <div style={{ marginTop: '4px', fontSize: '11.5px', color: '#6B7C90', fontWeight: 600 }}>
-              Para el {data?.fecha_consultada || fecha}
+            <div style={{ marginTop: '4px', fontSize: '11.5px', color: '#6B7C90', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span>Para el {data?.fecha_consultada || fecha}</span>
+              {excludedUsers.size > 0 && (
+                <span style={{ fontSize: '10.5px', color: '#DC2626', background: '#FEE2E2', padding: '1px 5px', borderRadius: '4px', fontWeight: 700 }}>
+                  ({excludedUsers.size} excluido{excludedUsers.size > 1 ? 's' : ''})
+                </span>
+              )}
             </div>
           </div>
 
@@ -443,10 +525,10 @@ export const ProductividadHorasView: React.FC = () => {
               </div>
             </div>
             <div style={{ marginTop: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '26px', fontWeight: 700, color: '#14263C' }}>
-              {data?.kpis.conciliadores_activos || 0}
+              {activeTotals.activos}
             </div>
             <div style={{ marginTop: '4px', fontSize: '11.5px', color: '#6B7C90', fontWeight: 600 }}>
-              Registrando transcripciones hoy
+              Contabilizados activamente
             </div>
           </div>
 
@@ -461,10 +543,10 @@ export const ProductividadHorasView: React.FC = () => {
               </div>
             </div>
             <div style={{ marginTop: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '26px', fontWeight: 700, color: '#14263C' }}>
-              {data?.kpis.hora_pico.hora || '--'}
+              {activeTotals.horaPico.hora || '--'}
             </div>
             <div style={{ marginTop: '4px', fontSize: '11.5px', color: '#6B7C90', fontWeight: 600 }}>
-              Volumen: {data?.kpis.hora_pico.total.toLocaleString('es-VE') || 0} planillas
+              Volumen: {activeTotals.horaPico.total.toLocaleString('es-VE')} planillas
             </div>
           </div>
 
@@ -479,7 +561,7 @@ export const ProductividadHorasView: React.FC = () => {
               </div>
             </div>
             <div style={{ marginTop: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '26px', fontWeight: 700, color: '#14263C' }}>
-              {data?.kpis.promedio_por_conciliador.toLocaleString('es-VE') || 0}
+              {activeTotals.promedio.toLocaleString('es-VE')}
             </div>
             <div style={{ marginTop: '4px', fontSize: '11.5px', color: '#6B7C90', fontWeight: 600 }}>
               Planillas / Analista
@@ -487,7 +569,7 @@ export const ProductividadHorasView: React.FC = () => {
           </div>
         </div>
 
-        {/* ── Curva de Distribución Horaria (Mini Gráfico de Barras) ── */}
+        {/* ── Curva de Distribución Horaria (Mini Gráfico de Barras - Recalculado) ── */}
         {data && data.horas.length > 0 && (
           <div style={{
             background: '#ffffff',
@@ -496,15 +578,22 @@ export const ProductividadHorasView: React.FC = () => {
             border: '1px solid #E6EBF1',
             boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
           }}>
-            <div style={{ fontSize: '12px', fontWeight: 800, color: '#475569', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: '12px' }}>
-              Distribución de Volumen por Hora
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <div style={{ fontSize: '12px', fontWeight: 800, color: '#475569', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                Distribución de Volumen por Hora
+              </div>
+              {excludedUsers.size > 0 && (
+                <span style={{ fontSize: '11px', color: '#64748B', fontWeight: 600 }}>
+                  Mostrando solo transcriptores contabilizados ({activeTotals.granTotal.toLocaleString('es-VE')} pln)
+                </span>
+              )}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: `repeat(${data.horas.length}, 1fr)`, gap: '10px' }}>
               {data.horas.map(h => {
-                const totalHora = data.totales_por_hora[h] || 0;
-                const maxHora = Math.max(...Object.values(data.totales_por_hora), 1);
+                const totalHora = activeTotals.totalesPorHora[h] || 0;
+                const maxHora = Math.max(...Object.values(activeTotals.totalesPorHora), 1);
                 const percent = Math.round((totalHora / maxHora) * 100);
-                const isPeak = data.kpis.hora_pico.hora === `${h}:00`;
+                const isPeak = activeTotals.horaPico.hora === `${h}:00`;
 
                 return (
                   <div key={h} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
@@ -568,7 +657,60 @@ export const ProductividadHorasView: React.FC = () => {
               </span>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              {/* Badge y acción para usuarios excluidos ("Ojito") */}
+              {excludedUsers.size > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontSize: '11.5px',
+                    fontWeight: 700,
+                    padding: '3px 8px',
+                    borderRadius: '6px',
+                    background: '#FEE2E2',
+                    color: '#DC2626',
+                    border: '1px solid #FECACA'
+                  }}>
+                    <EyeOff size={12} />
+                    {excludedUsers.size} excluido{excludedUsers.size > 1 ? 's' : ''}
+                  </span>
+                  <button
+                    onClick={resetExcludedUsers}
+                    style={{
+                      fontSize: '11.5px',
+                      fontWeight: 700,
+                      color: '#1E5C99',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      textDecoration: 'underline'
+                    }}
+                  >
+                    Restablecer
+                  </button>
+                  <button
+                    onClick={() => setHideExcludedRows(!hideExcludedRows)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '4px 8px',
+                      borderRadius: '6px',
+                      border: '1px solid #E1E7EE',
+                      background: hideExcludedRows ? '#EDF4FB' : '#FFFFFF',
+                      color: hideExcludedRows ? '#1E5C99' : '#64748B',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {hideExcludedRows ? 'Mostrar excluidos' : 'Ocultar excluidos'}
+                  </button>
+                </div>
+              )}
+
               <span style={{ fontSize: '11px', fontWeight: 700, color: '#8797A8' }}>ORDENAR:</span>
               <button
                 onClick={() => {
@@ -620,8 +762,11 @@ export const ProductividadHorasView: React.FC = () => {
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
               <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: '#F8FAFC' }}>
                 <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
-                  <th style={{ padding: '12px 14px', fontSize: '11px', fontWeight: 800, letterSpacing: '0.06em', color: '#475569', textTransform: 'uppercase', width: '45px', textAlign: 'center' }}>
-                    #
+                  <th style={{ padding: '12px 10px', fontSize: '11px', fontWeight: 800, letterSpacing: '0.06em', color: '#475569', textTransform: 'uppercase', width: '65px', textAlign: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '3px' }}>
+                      <Eye size={13} style={{ color: '#64748B' }} />
+                      <span>#</span>
+                    </div>
                   </th>
                   <th style={{ padding: '12px 16px', fontSize: '11px', fontWeight: 800, letterSpacing: '0.06em', color: '#475569', textTransform: 'uppercase', minWidth: '220px' }}>
                     Analista Conciliador
@@ -653,26 +798,69 @@ export const ProductividadHorasView: React.FC = () => {
                 )}
 
                 {conciliadoresFiltrados.map((row, idx) => {
-                  const share = data?.gran_total ? Math.round((row.total_usuario / data.gran_total) * 1000) / 10 : 0;
-                  const isTop = idx === 0 && row.total_usuario > 0;
+                  const isExcluded = excludedUsers.has(row.users_id);
+                  const share = activeTotals.granTotal > 0 && !isExcluded
+                    ? Math.round((row.total_usuario / activeTotals.granTotal) * 1000) / 10 
+                    : 0;
+                  const isTop = idx === 0 && row.total_usuario > 0 && !isExcluded;
 
                   return (
                     <tr
                       key={row.users_id}
                       style={{
                         borderBottom: '1px solid #EDF1F5',
-                        background: idx % 2 === 0 ? '#ffffff' : '#FAFCFE',
-                        transition: 'background 0.15s'
+                        background: isExcluded ? '#F8FAFC' : (idx % 2 === 0 ? '#ffffff' : '#FAFCFE'),
+                        opacity: isExcluded ? 0.45 : 1,
+                        transition: 'background 0.15s, opacity 0.2s'
                       }}
-                      onMouseEnter={(e) => e.currentTarget.style.background = '#F0F4F9'}
-                      onMouseLeave={(e) => e.currentTarget.style.background = idx % 2 === 0 ? '#ffffff' : '#FAFCFE'}
+                      onMouseEnter={(e) => {
+                        if (!isExcluded) e.currentTarget.style.background = '#F0F4F9';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isExcluded) e.currentTarget.style.background = idx % 2 === 0 ? '#ffffff' : '#FAFCFE';
+                      }}
                     >
-                      <td style={{ padding: '12px 14px', fontSize: '12px', color: '#94A3B8', fontWeight: 700, textAlign: 'center', fontFamily: "'IBM Plex Mono', monospace" }}>
-                        {idx + 1}
+                      {/* Ojito y Numerador */}
+                      <td style={{ padding: '10px 10px', textAlign: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                          <button
+                            onClick={() => toggleExcludeUser(row.users_id)}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              width: '24px',
+                              height: '24px',
+                              borderRadius: '5px',
+                              border: isExcluded ? '1px solid #FECACA' : '1px solid #E2E8F0',
+                              background: isExcluded ? '#FEE2E2' : '#FFFFFF',
+                              color: isExcluded ? '#DC2626' : '#64748B',
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease'
+                            }}
+                            title={isExcluded ? 'Clic para volver a ver y contabilizar a este transcriptor' : 'Clic para no ver y no contabilizar a este transcriptor'}
+                          >
+                            {isExcluded ? <EyeOff size={13} /> : <Eye size={13} />}
+                          </button>
+                          <span style={{
+                            fontSize: '11.5px',
+                            color: isExcluded ? '#94A3B8' : '#64748B',
+                            fontWeight: 700,
+                            fontFamily: "'IBM Plex Mono', monospace"
+                          }}>
+                            {idx + 1}
+                          </span>
+                        </div>
                       </td>
+
                       <td style={{ padding: '12px 16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '13px', fontWeight: 700, color: '#1E293B' }}>
+                          <span style={{
+                            fontSize: '13px',
+                            fontWeight: 700,
+                            color: isExcluded ? '#64748B' : '#1E293B',
+                            textDecoration: isExcluded ? 'line-through' : 'none'
+                          }}>
                             {row.nombre}
                           </span>
                           {row.nombre_corto && (
@@ -680,7 +868,20 @@ export const ProductividadHorasView: React.FC = () => {
                               ({row.nombre_corto})
                             </span>
                           )}
-                          {isTop && (
+                          {isExcluded && (
+                            <span style={{
+                              padding: '1px 6px',
+                              borderRadius: '4px',
+                              background: '#FEE2E2',
+                              color: '#DC2626',
+                              fontSize: '9.5px',
+                              fontWeight: 800,
+                              letterSpacing: '0.04em'
+                            }}>
+                              EXCLUIDO
+                            </span>
+                          )}
+                          {isTop && !isExcluded && (
                             <span style={{
                               padding: '1px 6px',
                               borderRadius: '4px',
@@ -701,8 +902,8 @@ export const ProductividadHorasView: React.FC = () => {
                           fontWeight: 700,
                           padding: '2px 8px',
                           borderRadius: '4px',
-                          background: '#F1F5F9',
-                          color: '#334155'
+                          background: isExcluded ? '#E2E8F0' : '#F1F5F9',
+                          color: isExcluded ? '#64748B' : '#334155'
                         }}>
                           {row.users_id}
                         </span>
@@ -711,8 +912,8 @@ export const ProductividadHorasView: React.FC = () => {
                       {/* Horas dinámicas */}
                       {data?.horas.map(h => {
                         const val = row.horas[h] || 0;
-                        const isHigh = val >= 5000;
-                        const isMedium = val >= 2000 && val < 5000;
+                        const isHigh = val >= 5000 && !isExcluded;
+                        const isMedium = val >= 2000 && val < 5000 && !isExcluded;
 
                         return (
                           <td
@@ -723,8 +924,8 @@ export const ProductividadHorasView: React.FC = () => {
                               fontFamily: "'IBM Plex Mono', monospace",
                               fontSize: '12.5px',
                               fontWeight: val > 0 ? 700 : 400,
-                              color: val > 0 ? (isHigh ? '#0F766E' : isMedium ? '#1E5C99' : '#1E293B') : '#CBD5E1',
-                              background: isHigh ? '#F0FDFA' : isMedium ? '#F0F9FF' : 'transparent'
+                              color: isExcluded ? '#94A3B8' : (val > 0 ? (isHigh ? '#0F766E' : isMedium ? '#1E5C99' : '#1E293B') : '#CBD5E1'),
+                              background: isExcluded ? 'transparent' : (isHigh ? '#F0FDFA' : isMedium ? '#F0F9FF' : 'transparent')
                             }}
                           >
                             {val > 0 ? val.toLocaleString('es-VE') : '—'}
@@ -739,15 +940,15 @@ export const ProductividadHorasView: React.FC = () => {
                         fontFamily: "'IBM Plex Mono', monospace",
                         fontSize: '13px',
                         fontWeight: 800,
-                        color: '#1E5C99',
-                        background: '#EDF4FB'
+                        color: isExcluded ? '#94A3B8' : '#1E5C99',
+                        background: isExcluded ? '#F1F5F9' : '#EDF4FB'
                       }}>
                         {row.total_usuario.toLocaleString('es-VE')}
                       </td>
 
                       {/* % Participación */}
-                      <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px', fontWeight: 600, color: '#475569' }}>
-                        {share}%
+                      <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px', fontWeight: 600, color: isExcluded ? '#94A3B8' : '#475569' }}>
+                        {isExcluded ? '—' : `${share}%`}
                       </td>
                     </tr>
                   );
@@ -762,12 +963,19 @@ export const ProductividadHorasView: React.FC = () => {
                 )}
               </tbody>
 
-              {/* ── Footer Institucional (Totales por Hora y Gran Total) ── */}
+              {/* ── Footer Institucional (Totales por Hora y Gran Total Recalculados) ── */}
               {data && data.conciliadores.length > 0 && (
                 <tfoot style={{ position: 'sticky', bottom: 0, zIndex: 10, background: '#14263C', color: '#ffffff' }}>
                   <tr>
                     <td colSpan={3} style={{ padding: '14px 20px', fontSize: '12.5px', fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                      TOTAL GENERAL USUARIOS
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>TOTAL GENERAL USUARIOS</span>
+                        {excludedUsers.size > 0 && (
+                          <span style={{ fontSize: '11px', color: '#F87171', fontWeight: 700, textTransform: 'none' }}>
+                            ({excludedUsers.size} excluido{excludedUsers.size > 1 ? 's' : ''})
+                          </span>
+                        )}
+                      </div>
                     </td>
                     {data.horas.map(h => (
                       <td
@@ -781,7 +989,7 @@ export const ProductividadHorasView: React.FC = () => {
                           color: '#93C5FD'
                         }}
                       >
-                        {(data.totales_por_hora[h] || 0).toLocaleString('es-VE')}
+                        {(activeTotals.totalesPorHora[h] || 0).toLocaleString('es-VE')}
                       </td>
                     ))}
                     <td style={{
@@ -793,7 +1001,7 @@ export const ProductividadHorasView: React.FC = () => {
                       color: '#FFFFFF',
                       background: '#0F3C68'
                     }}>
-                      {data.gran_total.toLocaleString('es-VE')}
+                      {activeTotals.granTotal.toLocaleString('es-VE')}
                     </td>
                     <td style={{ padding: '14px 14px', textAlign: 'right', fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px', fontWeight: 800, color: '#93C5FD' }}>
                       100%
