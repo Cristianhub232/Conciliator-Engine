@@ -25,6 +25,7 @@ import { BancoSelector } from '../components/BancoSelector';
 import { getBancoLabel } from '../services/bancosCatalog';
 import { IchiAgentWidget } from '../components/IchiAgentWidget';
 import { ReasignacionExpedientesView } from '../components/ReasignacionExpedientesView';
+import { ProductividadHorasView } from '../components/ProductividadHorasView';
 
 
 function OrquestadorPageInner() {
@@ -102,6 +103,7 @@ function OrquestadorPageInner() {
     const tabLabels: Record<NavTab, string> = {
       'conciliacion': `Conciliación Masiva · Banco ${banco} (${fecha})`,
       'reasignacion': 'Reasignación de Expedientes (ABIERTA ➔ PENDIENTE)',
+      'productividad_hora': 'Monitoreo de Productividad por Hora (Tiempo Real)',
       'transcriptores': 'Auditoría de Transcriptores y Operadores',
       'expedientes': 'Explorador de Expedientes y Lotes',
       'auditoria': 'Bitácora y Trazabilidad de Auditoría',
@@ -564,6 +566,7 @@ function OrquestadorPageInner() {
       {/* Área Principal de Contenido */}
       <main className="main-viewport">
         {activeTab === 'reasignacion' && <ReasignacionExpedientesView />}
+        {activeTab === 'productividad_hora' && <ProductividadHorasView />}
         {activeTab === 'transcriptores' && <TranscriptoresView />}
         {activeTab === 'expedientes' && <ExpedientesExplorerView />}
         {activeTab === 'auditoria' && <AuditoriaLogsView />}

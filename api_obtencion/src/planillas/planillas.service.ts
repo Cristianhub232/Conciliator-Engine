@@ -2301,5 +2301,167 @@ export class PlanillasService {
         (reasignadosFallidos.length > 0 ? ` (${reasignadosFallidos.length} con error).` : ''),
     };
   }
+
+  /**
+   * Obtiene la métrica de productividad y transcripción de planillas agrupadas por usuario y por hora
+   * para una fecha determinada (por defecto hoy en Oracle).
+   * Reemplaza de forma nativa e interactiva el reporte legacy TRANSC_X_HORA sin necesidad de generar PDF.
+   */
+  async getProductividadPorHora(fechaInput?: string) {
+    let fechaOracle = '';
+    let fechaIso = '';
+
+    if (!fechaInput || !fechaInput.trim()) {
+      const now = new Date();
+      const dd = String(now.getDate()).padStart(2, '0');
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const yyyy = String(now.getFullYear());
+      fechaOracle = `${dd}/${mm}/${yyyy}`;
+      fechaIso = `${yyyy}-${mm}-${dd}`;
+    } else {
+      const clean = fechaInput.trim();
+      if (clean.includes('-')) {
+        const parts = clean.split('-');
+        if (parts.length === 3) {
+          const [yyyy, mm, dd] = parts;
+          fechaOracle = `${dd.padStart(2, '0')}/${mm.padStart(2, '0')}/${yyyy}`;
+          fechaIso = `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+        } else {
+          fechaOracle = clean;
+          fechaIso = clean;
+        }
+      } else if (clean.includes('/')) {
+        const parts = clean.split('/');
+        if (parts.length === 3) {
+          const [dd, mm, yyyy] = parts;
+          fechaOracle = `${dd.padStart(2, '0')}/${mm.padStart(2, '0')}/${yyyy}`;
+          fechaIso = `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+        } else {
+          fechaOracle = clean;
+          fechaIso = clean;
+        }
+      } else {
+        fechaOracle = clean;
+        fechaIso = clean;
+      }
+    }
+
+    const query = `
+      WITH PLANILLAS_FECHA AS (
+        SELECT /*+ INDEX(P IDX_FECHA_PLANILLA) */
+          P.EXPEDIENTE,
+          P.ANHO,
+          TO_CHAR(P.FECHA_REGISTRO, 'HH24') AS HORA
+        FROM ORG_LIQ.PLANILLA P
+        WHERE TO_CHAR(P.FECHA_REGISTRO, 'DD/MM/RRRR') = :fechaOracle
+      ),
+      ASIGNACIONES AS (
+        SELECT 
+          WI.WFEX_EXP_ID,
+          WI.ANHO,
+          WI.WFUS_USERS_ID,
+          ROW_NUMBER() OVER (
+            PARTITION BY WI.WFEX_EXP_ID, WI.ANHO 
+            ORDER BY WI.WORKITEM DESC
+          ) AS RN
+        FROM WFE_WORKFLOW.WF_WORK_ITEM WI
+        WHERE WI.ORGA_ID IN ('93', '093', '63', '063')
+          AND WI.WFTA_TAREA_ID = 2061
+      )
+      SELECT 
+        NVL(U.USERS_NOMBRE_LARGO, A.WFUS_USERS_ID) AS NOMBRE_CONCILIADOR,
+        NVL(U.USERS_NOMBRE_CORTO, '') AS NOMBRE_CORTO,
+        A.WFUS_USERS_ID AS USERS_ID,
+        P.HORA,
+        COUNT(*) AS TOTAL_PLANILLAS
+      FROM PLANILLAS_FECHA P
+      JOIN ASIGNACIONES A 
+        ON A.WFEX_EXP_ID = P.EXPEDIENTE 
+       AND A.ANHO = P.ANHO
+       AND A.RN = 1
+      LEFT JOIN WFE_WORKFLOW.WF_USERS U 
+        ON U.USERS_ID = A.WFUS_USERS_ID
+      GROUP BY 
+        NVL(U.USERS_NOMBRE_LARGO, A.WFUS_USERS_ID),
+        NVL(U.USERS_NOMBRE_CORTO, ''),
+        A.WFUS_USERS_ID,
+        P.HORA
+      ORDER BY NOMBRE_CONCILIADOR ASC, P.HORA ASC
+    `;
+
+    const rows = await this.db.executeQuery<any>(query, { fechaOracle });
+
+    const horasSet = new Set<string>();
+    const userMap = new Map<string, {
+      users_id: string;
+      nombre: string;
+      nombre_corto: string;
+      nombre_completo: string;
+      horas: Record<string, number>;
+      total_usuario: number;
+    }>();
+
+    const totalesPorHora: Record<string, number> = {};
+    let granTotal = 0;
+
+    for (const r of rows) {
+      const hora = String(r.HORA || '').padStart(2, '0');
+      const cant = Number(r.TOTAL_PLANILLAS || 0);
+      const userId = r.USERS_ID;
+      const nombreLargo = r.NOMBRE_CONCILIADOR || userId;
+      const nombreCorto = r.NOMBRE_CORTO || '';
+      const nombreCompleto = `${nombreCorto} ${nombreLargo}`.trim() || userId;
+
+      horasSet.add(hora);
+
+      if (!userMap.has(userId)) {
+        userMap.set(userId, {
+          users_id: userId,
+          nombre: nombreLargo,
+          nombre_corto: nombreCorto,
+          nombre_completo: nombreCompleto,
+          horas: {},
+          total_usuario: 0,
+        });
+      }
+
+      const uObj = userMap.get(userId)!;
+      uObj.horas[hora] = (uObj.horas[hora] || 0) + cant;
+      uObj.total_usuario += cant;
+
+      totalesPorHora[hora] = (totalesPorHora[hora] || 0) + cant;
+      granTotal += cant;
+    }
+
+    const horasOrdenadas = Array.from(horasSet).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+    const conciliadores = Array.from(userMap.values()).sort((a, b) => b.total_usuario - a.total_usuario);
+
+    let horaPico = { hora: '--', total: 0 };
+    for (const [h, tot] of Object.entries(totalesPorHora)) {
+      if (tot > horaPico.total) {
+        horaPico = { hora: `${h}:00`, total: tot };
+      }
+    }
+
+    const promedioConciliador = conciliadores.length > 0 
+      ? Math.round(granTotal / conciliadores.length) 
+      : 0;
+
+    return {
+      success: true,
+      fecha_consultada: fechaOracle,
+      fecha_iso: fechaIso,
+      horas: horasOrdenadas,
+      conciliadores,
+      totales_por_hora: totalesPorHora,
+      gran_total: granTotal,
+      kpis: {
+        total_planillas: granTotal,
+        conciliadores_activos: conciliadores.length,
+        hora_pico: horaPico,
+        promedio_por_conciliador: promedioConciliador,
+      }
+    };
+  }
 }
 

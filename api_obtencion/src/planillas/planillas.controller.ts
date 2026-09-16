@@ -487,4 +487,24 @@ export class PlanillasController {
       );
     }
   }
+
+  @Get('metricas/productividad-hora')
+  @ApiOperation({
+    summary: 'Métricas de productividad y transcripción por hora por usuario',
+    description: 'Obtiene el desglose matricial de planillas procesadas por hora para cada analista conciliador en una fecha determinada (por defecto hoy).'
+  })
+  @ApiQuery({ name: 'fecha', required: false, example: '2026-09-16', description: 'Fecha de consulta (YYYY-MM-DD o DD/MM/YYYY)' })
+  @ApiResponse({ status: 200, description: 'Métricas de productividad por hora obtenidas exitosamente' })
+  async getProductividadPorHora(@Query('fecha') fecha?: string) {
+    try {
+      return await this.planillasService.getProductividadPorHora(fecha);
+    } catch (error: any) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error al consultar métricas de productividad por hora', message: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
 }
+

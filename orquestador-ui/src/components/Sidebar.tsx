@@ -16,12 +16,13 @@ import {
   ShieldAlert,
   Bot,
   Landmark,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Clock
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { AppVersionBadge } from './AppVersionBadge';
 
-export type NavTab = 'conciliacion' | 'reasignacion' | 'transcriptores' | 'expedientes' | 'auditoria' | 'catalogo_formas' | 'depuracion' | 'notas_credito' | 'bot-config' | 'usuarios' | 'configuracion';
+export type NavTab = 'conciliacion' | 'reasignacion' | 'productividad_hora' | 'transcriptores' | 'expedientes' | 'auditoria' | 'catalogo_formas' | 'depuracion' | 'notas_credito' | 'bot-config' | 'usuarios' | 'configuracion';
 
 interface SidebarProps {
   activeTab: NavTab;
@@ -74,6 +75,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Reasignar Carga',
       icon: ArrowRightLeft,
       badge: 'Workflow'
+    },
+    {
+      id: 'productividad_hora' as NavTab,
+      label: 'Productividad por Hora',
+      icon: Clock,
+      badge: 'En Vivo'
     },
     {
       id: 'transcriptores' as NavTab,
