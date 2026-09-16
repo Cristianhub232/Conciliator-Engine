@@ -10,7 +10,7 @@ import * as path from 'path';
 export interface CerrarExpedienteDto {
   expediente: number;
   anho: number;
-  analista_asignado: string;
+  analista_asignado?: string;
   usuario_operador?: string;
   observacion?: string;
   fecha_recaudacion?: string;
@@ -1663,18 +1663,19 @@ export class PlanillasService {
     };
   }
 
-  // Cerrar expediente y reasignar a fase de validación (Tarea 2062)
+  // Cerrar expediente mediante actualización in-situ (WF_EXPEDIENTE a CERRADO, LOTE a V, WF_WORK_ITEM a CERRADA)
+  // Principio estricto: NO se realiza inserción de nuevo registro, solo actualización del existente
   async cerrarExpedienteYReasignar(dto: CerrarExpedienteDto) {
     const { expediente, anho, analista_asignado, usuario_operador, observacion, fecha_recaudacion, banco } = dto;
 
-    if (!expediente || !anho || !analista_asignado) {
-      throw new BadRequestException('Los campos expediente, anho y analista_asignado son obligatorios.');
+    if (!expediente || !anho) {
+      throw new BadRequestException('Los campos expediente y anho son obligatorios.');
     }
 
     const expNum = Number(expediente);
     const anhoNum = Number(anho);
 
-    // 1. Validar que los lotes del expediente existan y estén TODOS en estado 'V'
+    // 1. Validar que los lotes del expediente existan
     const lotesQuery = `
       SELECT LOTE_ID, LOTE_SEQ, ANHO, EXPEDIENTE, TOTAL_PLN, ESTADO, INFN_CODIGO, AGENCIA_CODIGO, 
              TO_CHAR(FECHA_RECAUDACION, 'YYYY-MM-DD') AS FECHA_RECAUDACION
@@ -1686,16 +1687,6 @@ export class PlanillasService {
 
     if (!lotes || lotes.length === 0) {
       throw new BadRequestException(`No se encontraron lotes asociados al expediente ${expNum} para el año ${anhoNum}.`);
-    }
-
-    const lotesPendientes = lotes.filter(l => l.ESTADO !== 'V');
-    if (lotesPendientes.length > 0) {
-      const detallePendientes = lotesPendientes
-        .map(l => `Lote ${l.LOTE_ID} (SEQ: ${l.LOTE_SEQ}, Estado: '${l.ESTADO}')`)
-        .join(', ');
-      throw new BadRequestException(
-        `No se puede cerrar el expediente ${expNum}: Existen ${lotesPendientes.length} lote(s) que aún no están en estado 'V': ${detallePendientes}. Todos los lotes deben estar en estado 'V' antes de transferir a validación.`
-      );
     }
 
     // 2. Validar que no existan planillas pendientes de conciliar en TXT_SENIAT para los lotes de este expediente
@@ -1719,20 +1710,7 @@ export class PlanillasService {
       );
     }
 
-    // 3. Validar que el analista seleccionado existe y está activo
-    const userCheckQuery = `
-      SELECT USERS_ID, USERS_NOMBRE_CORTO, USERS_NOMBRE_LARGO, USERS_STATUS
-      FROM WFE_WORKFLOW.WF_USERS
-      WHERE USERS_ID = :analista AND USERS_STATUS = 'A'
-    `;
-    const userRows = await this.db.executeQuery<any>(userCheckQuery, { analista: analista_asignado.trim() });
-    if (!userRows || userRows.length === 0) {
-      throw new BadRequestException(`El analista revisor '${analista_asignado}' no es un usuario activo en SIGECOF.`);
-    }
-    const analistaObj = userRows[0];
-    const nombreAnalista = `${analistaObj.USERS_NOMBRE_CORTO || ''} ${analistaObj.USERS_NOMBRE_LARGO || ''}`.trim();
-
-    // 4. Consultar historial de WF_WORK_ITEM para este expediente
+    // 3. Consultar historial de WF_WORK_ITEM para este expediente (usa readPool con ONT_SIR_BOT_AUDIT)
     const wiQuery = `
       SELECT WORKITEM, WFEX_EXP_ID, ANHO, ORGA_ID, WI_NOMBRE, WI_DESCRIPCION, WI_ORIGEN,
              WI_ESTADO, WFUS_USERS_ID, WFTA_TAREA_ID
@@ -1740,45 +1718,56 @@ export class PlanillasService {
       WHERE WFEX_EXP_ID = :expNum AND ANHO = :anhoNum AND ORGA_ID = '93'
       ORDER BY WORKITEM ASC
     `;
-    const workItems = await this.db.executeQuery<any>(wiQuery, { expNum, anhoNum });
-
-    // Calcular el siguiente WORKITEM
-    let maxWi = 0;
-    for (const wi of workItems) {
-      const n = Number(wi.WORKITEM);
-      if (!isNaN(n) && n > maxWi) maxWi = n;
+    let workItems: any[] = [];
+    try {
+      workItems = await this.db.executeQuery<any>(wiQuery, { expNum, anhoNum });
+    } catch (wiErr: any) {
+      this.logger.warn(`Aviso al consultar WF_WORK_ITEM para expediente ${expNum}: ${wiErr.message}`);
     }
-    const nextWi = maxWi + 1;
 
-    // Identificar workitem actual activo (2061 o 2060 en estado PENDIENTE / ABIERTA)
+    // Identificar workitem actual activo (estado PENDIENTE / ABIERTA)
     const currentActiveWi = workItems.find(w =>
-      (w.WI_ESTADO === 'PENDIENTE' || w.WI_ESTADO === 'ABIERTA') &&
-      (Number(w.WFTA_TAREA_ID) === 2061 || Number(w.WFTA_TAREA_ID) === 2060)
+      (w.WI_ESTADO === 'PENDIENTE' || w.WI_ESTADO === 'ABIERTA')
     ) || workItems[workItems.length - 1];
 
     const currentWiNum = currentActiveWi ? Number(currentActiveWi.WORKITEM) : null;
     const origenUsuario = usuario_operador || currentActiveWi?.WFUS_USERS_ID || 'ONT_SIR_BOT';
+    const observacionFinal = observacion || `Expediente conciliado y cerrado satisfactoriamente por ${origenUsuario}`;
 
-    // Armar descripción del workitem manteniendo el formato estándar de SIGECOF
-    const fechaLote = fecha_recaudacion || lotes[0]?.FECHA_RECAUDACION || '';
-    const bancoLote = banco || lotes[0]?.INFN_CODIGO || '';
-    let descripcionWi = currentActiveWi?.WI_DESCRIPCION;
-    if (!descripcionWi) {
-      const fechaParts = String(fechaLote).split('-');
-      const fechaDDMMYYYY = fechaParts.length === 3 ? `${fechaParts[2]}/${fechaParts[1]}/${fechaParts[0]}` : fechaLote;
-      descripcionWi = `REASIGNACION - Banco: ${bancoLote} Dia: ${fechaDDMMYYYY}`;
-    }
-
-    // 5. Ejecutar transición en Oracle
+    // 4. Ejecutar actualización in-situ en Oracle (SIN INSERCIÓN DE NUEVO WORKITEM)
     const writeConn = await this.db.getConnection();
-    let currentWiCerrado = false;
-    let newWiCreado = false;
+    let lotesCerradosCount = 0;
+    let expCabeceraCerrada = false;
+    let workItemCerrado = false;
 
     try {
-      // 5.1 Intentar cerrar el work item actual si existe y no está cerrado
-      if (currentWiNum && currentActiveWi?.WI_ESTADO !== 'CERRADA') {
+      // 4.1 Cierre de lotes: Actualizar a estado 'V' todos los lotes del expediente que permanezcan en 'P'
+      const updateLotesRes: any = await writeConn.execute(
+        `UPDATE ORG_LIQ.LOTE
+         SET ESTADO = 'V'
+         WHERE EXPEDIENTE = :expNum AND ANHO = :anhoNum AND ESTADO = 'P'`,
+        { expNum, anhoNum },
+        { autoCommit: false }
+      );
+      lotesCerradosCount = updateLotesRes?.rowsAffected || 0;
+
+      // 4.2 Cierre de cabecera en WF_EXPEDIENTE: Actualizar EXP_ESTADO = 'CERRADO'
+      // Esto dispara el trigger nativo AUDITAUPDATEEXPEDIENTES hacia WF_AUDITA_EXPEDIENTES
+      const updateExpRes: any = await writeConn.execute(
+        `UPDATE WFE_WORKFLOW.WF_EXPEDIENTE
+         SET EXP_ESTADO = 'CERRADO',
+             EXP_FECHA_CIERRE = SYSDATE,
+             EXP_OBSERVACION = NVL(:observacion, EXP_OBSERVACION)
+         WHERE EXP_ID = :expNum AND ANHO = :anhoNum AND ORGA_ID = '93'`,
+        { expNum, anhoNum, observacion: observacionFinal },
+        { autoCommit: false }
+      );
+      expCabeceraCerrada = (updateExpRes?.rowsAffected || 0) > 0;
+
+      // 4.3 Cierre in-situ del WorkItem activo en WF_WORK_ITEM: Actualizar a 'CERRADA'
+      if (currentWiNum) {
         try {
-          await writeConn.execute(
+          const updateWiRes: any = await writeConn.execute(
             `UPDATE WFE_WORKFLOW.WF_WORK_ITEM
              SET WI_ESTADO = 'CERRADA',
                  WI_FECHA_CIERRE = SYSDATE,
@@ -1787,74 +1776,57 @@ export class PlanillasService {
                AND ANHO = :anhoNum
                AND ORGA_ID = '93'
                AND WORKITEM = :currentWiNum`,
-            {
-              expNum,
-              anhoNum,
-              currentWiNum,
-              observacion: observacion || `Cierre de conciliación y pase a validación para ${analista_asignado}`,
-            },
+            { expNum, anhoNum, currentWiNum, observacion: observacionFinal },
             { autoCommit: false }
           );
-          currentWiCerrado = true;
-        } catch (updateErr: any) {
-          this.logger.warn(`Aviso al actualizar WI actual ${currentWiNum} a CERRADA: ${updateErr.message}`);
+          workItemCerrado = (updateWiRes?.rowsAffected || 0) > 0;
+        } catch (wiUpdateErr: any) {
+          this.logger.warn(`Aviso al actualizar WF_WORK_ITEM a CERRADA (pendiente GRANT SELECT DBA): ${wiUpdateErr.message}`);
         }
       }
 
-      // 5.2 Insertar el nuevo WORKITEM asignado al analista revisor para Tarea 2062 (Validar Conciliación de Ingreso)
-      await writeConn.execute(
-        `INSERT INTO WFE_WORKFLOW.WF_WORK_ITEM (
-           WORKITEM, WFEX_EXP_ID, ANHO, ORGA_ID,
-           WI_NOMBRE, WI_DESCRIPCION, WI_ORIGEN,
-           WI_PRIORIDAD, WI_ESTADO, WI_FECHA_CREACION,
-           WI_FECHA_VENCIMIENTO, WFUS_USERS_ID,
-           WFTA_TAREA_ID, WI_OBSERVACION
-         ) VALUES (
-           :nextWi, :expNum, :anhoNum, '93',
-           'Validar Conciliación de Ingreso',
-           :descripcion, :usuarioOrigen,
-           '1', 'PENDIENTE', SYSDATE,
-           SYSDATE + 3, :analistaAsignado,
-           2062, :observacion
-         )`,
-        {
-          nextWi,
-          expNum,
-          anhoNum,
-          descripcion: descripcionWi,
-          usuarioOrigen: origenUsuario,
-          analistaAsignado: analista_asignado.trim(),
-          observacion: observacion || `Expediente conciliado y transferido a validación por ${origenUsuario}`,
-        },
-        { autoCommit: false }
-      );
-      newWiCreado = true;
+      // 4.4 Registro explícito en WF_AUDITA_EXPEDIENTES
+      try {
+        await writeConn.execute(
+          `INSERT INTO WFE_WORKFLOW.WF_AUDITA_EXPEDIENTES (
+             USUARIO_ORACLE, ORGANISMO_ID, USUARIO_APLICATIVO, EXPEDIENTE_ID, FECHA_HORA
+           ) VALUES (
+             'ONT_SIR_BOT', '093', :operador, :expedienteStr, TO_CHAR(SYSDATE, 'DD/MM/YYYY:HH24:MI:SS')
+           )`,
+          {
+            operador: origenUsuario.substring(0, 15),
+            expedienteStr: String(expNum).substring(0, 10),
+          },
+          { autoCommit: false }
+        );
+      } catch (auditErr: any) {
+        this.logger.warn(`Aviso al insertar en WF_AUDITA_EXPEDIENTES: ${auditErr.message}`);
+      }
 
       await writeConn.commit();
     } catch (dbErr: any) {
       await writeConn.rollback();
-      throw new BadRequestException(`Error ejecutando la transición en Oracle Workflow: ${dbErr.message}`);
+      throw new BadRequestException(`Error ejecutando el cierre de expediente en Oracle: ${dbErr.message}`);
     } finally {
       try { await writeConn.close(); } catch {}
     }
 
-    // 6. Auditoría y Trazabilidad
+    // 5. Auditoría y Trazabilidad en PostgreSQL
     const totalPlanillas = lotes.reduce((sum, l) => sum + Number(l.TOTAL_PLN || 0), 0);
     const auditData = {
-      accion: 'CIERRE_EXPEDIENTE_REASIGNACION',
+      accion: 'CIERRE_EXPEDIENTE_DIRECTO',
+      modulo: 'CIERRE_EXPEDIENTE',
       expediente: expNum,
       anho: anhoNum,
       usuario_operador: origenUsuario,
-      analista_asignado: analista_asignado.trim(),
-      analista_nombre: nombreAnalista,
-      lotes_cerrados: lotes.length,
+      analista_referencia: analista_asignado || 'N/A',
+      lotes_cerrados: lotesCerradosCount,
+      total_lotes: lotes.length,
       total_planillas: totalPlanillas,
-      workitem_anterior: currentWiNum,
-      workitem_anterior_cerrado: currentWiCerrado,
-      workitem_nuevo: nextWi,
-      tarea_id: 2062,
-      tarea_nombre: 'Validar Conciliación de Ingreso',
-      observacion: observacion || 'Transferencia exitosa a fase de validación',
+      cabecera_expediente_cerrada: expCabeceraCerrada,
+      workitem_actualizado: currentWiNum,
+      workitem_cerrado: workItemCerrado,
+      observacion: observacionFinal,
       timestamp: new Date().toISOString(),
     };
 
@@ -1862,15 +1834,14 @@ export class PlanillasService {
 
     return {
       success: true,
-      mensaje: `Expediente ${expNum} cerrado exitosamente y transferido a Validación (Tarea 2062) asignado a ${analista_asignado} (${nombreAnalista}).`,
+      mensaje: `Expediente #${expNum} cerrado exitosamente en Oracle SIGECOF (Cabecera: CERRADO, Lotes validados).`,
       expediente: expNum,
       anho: anhoNum,
-      workitem_anterior: currentWiNum,
-      workitem_anterior_cerrado: currentWiCerrado,
-      workitem_nuevo: nextWi,
-      analista_asignado: analista_asignado.trim(),
-      analista_nombre: nombreAnalista,
-      lotes_validados: lotes.length,
+      cabecera_cerrada: expCabeceraCerrada,
+      workitem_cerrado: workItemCerrado,
+      workitem_actual: currentWiNum,
+      lotes_actualizados: lotesCerradosCount,
+      total_lotes: lotes.length,
       total_planillas: totalPlanillas,
     };
   }

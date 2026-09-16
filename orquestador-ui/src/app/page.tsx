@@ -1470,7 +1470,7 @@ function OrquestadorPageInner() {
                     border: 'none',
                     cursor: 'pointer'
                   }}
-                  title="Cerrar expediente y pasar a siguiente fase (Validación - Tarea 2062)"
+                  title="Cerrar expediente formalmente en SIGECOF (Actualización in-situ: cabecera CERRADO y lotes V)"
                 >
                   <FolderCheck size={14} />
                   Cerrar Expediente

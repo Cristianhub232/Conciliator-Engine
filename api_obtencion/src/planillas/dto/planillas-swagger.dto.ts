@@ -70,8 +70,8 @@ export class CerrarExpedienteDto {
   @ApiProperty({ description: 'Año fiscal del expediente', example: 2024 })
   anho!: number;
 
-  @ApiProperty({ description: 'Usuario revisor al cual reasignar el expediente (ej. TIBISAYRIVAS)', example: 'TIBISAYRIVAS' })
-  analista_asignado!: string;
+  @ApiPropertyOptional({ description: 'Usuario revisor opcional para trazabilidad (ej. TIBISAYRIVAS)', example: 'TIBISAYRIVAS' })
+  analista_asignado?: string;
 
   @ApiPropertyOptional({ description: 'Usuario operador que ejecuta el cierre', example: 'MAIRA_0018' })
   usuario_operador?: string;

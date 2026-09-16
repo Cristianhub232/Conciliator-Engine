@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { 
   FolderCheck, 
@@ -8,28 +8,16 @@ import {
   CheckCircle2, 
   AlertCircle, 
   Loader2, 
-  UserCheck, 
-  Search, 
   ShieldCheck, 
-  ArrowRight,
-  Layers,
-  Calendar,
-  Building2,
+  Layers, 
+  Calendar, 
+  Building2, 
   FileCheck2,
-  FileSpreadsheet
+  Lock,
+  FileText
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { getBancoLabel } from '../services/bancosCatalog';
-
-export interface AnalistaRevisor {
-  users_id: string;
-  nombre: string;
-  apellido: string;
-  nombre_completo: string;
-  status: string;
-  ultima_asignacion: string;
-  total_asignados: number;
-}
 
 interface CerrarExpedienteModalProps {
   isOpen: boolean;
@@ -55,11 +43,7 @@ export const CerrarExpedienteModal: React.FC<CerrarExpedienteModalProps> = ({
   onCierreSuccess,
 }) => {
   const { usuario } = useAuth();
-  const [analistas, setAnalistas] = useState<AnalistaRevisor[]>([]);
-  const [loadingAnalistas, setLoadingAnalistas] = useState(false);
-  const [selectedAnalista, setSelectedAnalista] = useState<string>('');
-  const [searchAnalista, setSearchAnalista] = useState('');
-  const [observacion, setObservacion] = useState('Expediente conciliado al 100% y transferido a fase de validación');
+  const [observacion, setObservacion] = useState('Expediente conciliado y cerrado satisfactoriamente');
   const [expedienteNumero, setExpedienteNumero] = useState<string>(expediente ? String(expediente) : '');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,54 +56,13 @@ export const CerrarExpedienteModal: React.FC<CerrarExpedienteModalProps> = ({
     }
   }, [expediente]);
 
-  // Cargar lista de analistas revisores al abrir modal
   useEffect(() => {
     if (!isOpen) {
       setError(null);
       setSuccessResult(null);
       setSubmitting(false);
-      return;
     }
-
-    const fetchAnalistas = async () => {
-      setLoadingAnalistas(true);
-      setError(null);
-      try {
-        const res = await axios.get('/api/orquestador/planillas/analistas-revisores');
-        if (res.data?.success && Array.isArray(res.data.analistas)) {
-          setAnalistas(res.data.analistas);
-          // Si no hay analista seleccionado, pre-seleccionar el primero más activo
-          if (res.data.analistas.length > 0 && !selectedAnalista) {
-            setSelectedAnalista(res.data.analistas[0].users_id);
-          }
-        }
-      } catch (err: any) {
-        console.error('Error cargando analistas revisores:', err);
-        setError('No se pudo cargar la lista de analistas revisores desde SIGECOF.');
-      } finally {
-        setLoadingAnalistas(false);
-      }
-    };
-
-    fetchAnalistas();
   }, [isOpen]);
-
-  // Analistas filtrados por búsqueda
-  const analistasFiltrados = useMemo(() => {
-    if (!searchAnalista.trim()) return analistas;
-    const term = searchAnalista.toLowerCase().trim();
-    return analistas.filter(
-      a =>
-        a.nombre_completo.toLowerCase().includes(term) ||
-        a.users_id.toLowerCase().includes(term) ||
-        a.nombre.toLowerCase().includes(term) ||
-        a.apellido.toLowerCase().includes(term)
-    );
-  }, [analistas, searchAnalista]);
-
-  const analistaActual = useMemo(() => {
-    return analistas.find(a => a.users_id === selectedAnalista);
-  }, [analistas, selectedAnalista]);
 
   if (!isOpen) return null;
 
@@ -128,11 +71,6 @@ export const CerrarExpedienteModal: React.FC<CerrarExpedienteModalProps> = ({
     const expNum = parseInt(expedienteNumero.trim(), 10);
     if (!expNum || isNaN(expNum)) {
       setError('Debe especificar un número de expediente válido.');
-      return;
-    }
-
-    if (!selectedAnalista) {
-      setError('Debe seleccionar el analista revisor para la siguiente fase.');
       return;
     }
 
@@ -147,7 +85,6 @@ export const CerrarExpedienteModal: React.FC<CerrarExpedienteModalProps> = ({
       const res = await axios.post('/api/orquestador/planillas/cerrar-expediente', {
         expediente: expNum,
         anho: Number(anho) || new Date(fecha).getFullYear() || 2024,
-        analista_asignado: selectedAnalista,
         usuario_operador: userOperador,
         observacion: observacion.trim(),
         fecha_recaudacion: fecha,
@@ -179,13 +116,13 @@ export const CerrarExpedienteModal: React.FC<CerrarExpedienteModalProps> = ({
       <div 
         className="modal-card" 
         onClick={e => e.stopPropagation()} 
-        style={{ maxWidth: '680px', width: '92vw', borderRadius: '16px', overflow: 'hidden' }}
+        style={{ maxWidth: '620px', width: '92vw', borderRadius: '16px', overflow: 'hidden' }}
       >
         {/* ── Modal Header ── */}
         <div 
           className="modal-header" 
           style={{ 
-            background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%)', 
+            background: 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%)', 
             color: '#ffffff',
             padding: '20px 24px',
             borderBottom: 'none'
@@ -194,39 +131,39 @@ export const CerrarExpedienteModal: React.FC<CerrarExpedienteModalProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div 
               style={{ 
-                width: '40px', 
-                height: '40px', 
+                width: '42px', 
+                height: '42px', 
                 borderRadius: '10px', 
-                background: 'rgba(255, 255, 255, 0.15)', 
+                background: 'rgba(255, 255, 255, 0.12)', 
                 display: 'flex', 
                 alignItems: 'center', 
                 justifyContent: 'center',
                 boxShadow: 'inset 0 0 12px rgba(255, 255, 255, 0.1)'
               }}
             >
-              <FolderCheck size={22} color="#ffffff" />
+              <FolderCheck size={24} color="#60a5fa" />
             </div>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#ffffff', margin: 0, letterSpacing: '-0.01em' }}>
-                  Cerrar Expediente y Pasar a Validación
+                  Cierre de Expediente
                 </h3>
                 <span 
                   style={{ 
                     fontSize: '11px', 
                     padding: '2px 8px', 
                     borderRadius: '20px', 
-                    background: 'rgba(59, 130, 246, 0.3)', 
-                    border: '1px solid rgba(147, 197, 253, 0.4)',
-                    color: '#dbeafe', 
+                    background: 'rgba(34, 197, 94, 0.25)', 
+                    border: '1px solid rgba(74, 222, 128, 0.4)',
+                    color: '#86efac', 
                     fontWeight: 700 
                   }}
                 >
-                  Tarea 2062
+                  UPDATE In-Situ
                 </span>
               </div>
-              <p style={{ fontSize: '12px', color: '#bfdbfe', margin: '3px 0 0 0' }}>
-                Validar Conciliación de Ingreso · SIGECOF Workflow Oficial
+              <p style={{ fontSize: '12px', color: '#94a3b8', margin: '3px 0 0 0' }}>
+                Actualización atómica en SIGECOF: WF_EXPEDIENTE a 'CERRADO' y lotes a 'V'
               </p>
             </div>
           </div>
@@ -264,10 +201,10 @@ export const CerrarExpedienteModal: React.FC<CerrarExpedienteModalProps> = ({
               </div>
 
               <h4 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '8px' }}>
-                ¡Expediente Cerrado y Transferido con Éxito!
+                ¡Expediente Cerrado Exitosamente!
               </h4>
               <p style={{ fontSize: '13px', color: 'var(--text-muted)', maxWidth: '460px', margin: '0 auto 24px auto' }}>
-                El expediente fue completado en la fase de conciliación y ha sido transferido en Oracle Workflow para su validación oficial.
+                Se actualizó la cabecera en SIGECOF Workflow y se validaron todos los lotes sin generar inserciones duplicadas.
               </p>
 
               <div 
@@ -291,26 +228,27 @@ export const CerrarExpedienteModal: React.FC<CerrarExpedienteModalProps> = ({
                 </div>
 
                 <div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>NUEVO WORK ITEM</div>
-                  <div style={{ fontSize: '15px', fontWeight: 800, color: '#2563eb' }}>
-                    Item #{successResult.workitem_nuevo}
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>ESTADO CABECERA</div>
+                  <div style={{ fontSize: '15px', fontWeight: 800, color: '#16a34a' }}>
+                    CERRADO
                   </div>
+                  <div style={{ fontSize: '11px', color: '#64748b' }}>WF_EXPEDIENTE.EXP_ESTADO</div>
                 </div>
 
                 <div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>ANALISTA REVISOR</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>LOTES VALIDADOS</div>
                   <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                    {successResult.analista_nombre || successResult.analista_asignado}
+                    {successResult.lotes_actualizados || successResult.total_lotes} lote(s) en 'V'
                   </div>
-                  <div style={{ fontSize: '11px', color: '#64748b' }}>{successResult.analista_asignado}</div>
+                  <div style={{ fontSize: '11px', color: '#64748b' }}>ORG_LIQ.LOTE.ESTADO</div>
                 </div>
 
                 <div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>FASE DE DESTINO</div>
-                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#16a34a' }}>
-                    Validar Conciliación de Ingreso
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>PLANILLAS CONCILIADAS</div>
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    {successResult.total_planillas || totalPlanillasConciliadas} registros
                   </div>
-                  <div style={{ fontSize: '11px', color: '#64748b' }}>Tarea ID 2062 · Plazo: 3 días</div>
+                  <div style={{ fontSize: '11px', color: '#64748b' }}>100% Verificado</div>
                 </div>
               </div>
 
@@ -416,7 +354,7 @@ export const CerrarExpedienteModal: React.FC<CerrarExpedienteModalProps> = ({
               >
                 <ShieldCheck size={22} color="#16a34a" style={{ flexShrink: 0 }} />
                 <div style={{ fontSize: '12.5px', lineHeight: '1.4', color: '#15803d' }}>
-                  <strong>Verificación de Integridad Aprobada:</strong> Todos los lotes del expediente se validarán en estado <strong>'V'</strong> en <code style={{ background: 'rgba(0,0,0,0.06)', padding: '1px 4px', borderRadius: '3px' }}>ORG_LIQ.LOTE</code> y se certificará que no existan planillas pendientes.
+                  <strong>Regla de Negocio Aplicada:</strong> El cierre se efectúa mediante <strong>actualización in-situ</strong> sobre el registro activo. No se realiza inserción de registros nuevos. Se actualizará la cabecera en <code style={{ background: 'rgba(0,0,0,0.06)', padding: '1px 4px', borderRadius: '3px' }}>WF_EXPEDIENTE</code> a 'CERRADO' y los lotes a 'V'.
                 </div>
               </div>
 
@@ -443,7 +381,7 @@ export const CerrarExpedienteModal: React.FC<CerrarExpedienteModalProps> = ({
                 </div>
               )}
 
-              {/* Campo Expediente (Editable si no se detectó o se quiere ajustar) */}
+              {/* Campo Expediente (Editable si no se detectó) */}
               {!expediente && (
                 <div style={{ marginBottom: '16px' }}>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
@@ -461,129 +399,11 @@ export const CerrarExpedienteModal: React.FC<CerrarExpedienteModalProps> = ({
                 </div>
               )}
 
-              {/* Selector de Analista Revisor */}
-              <div style={{ marginBottom: '18px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <UserCheck size={14} color="#2563eb" />
-                    Asignar Analista Revisor para Validación <span style={{ color: '#ef4444' }}>*</span>
-                  </label>
-                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                    Fase: Validar Conciliación de Ingreso
-                  </span>
-                </div>
-
-                {loadingAnalistas ? (
-                  <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', border: '1px solid var(--border-color)', borderRadius: '10px' }}>
-                    <Loader2 size={20} className="spinner" style={{ margin: '0 auto 8px auto' }} />
-                    <span style={{ fontSize: '12px' }}>Cargando analistas activos en SIGECOF...</span>
-                  </div>
-                ) : (
-                  <div>
-                    {/* Input buscador rápido de analistas */}
-                    <div style={{ position: 'relative', marginBottom: '8px' }}>
-                      <Search 
-                        size={14} 
-                        color="var(--text-muted)" 
-                        style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} 
-                      />
-                      <input
-                        type="text"
-                        placeholder="Buscar analista por nombre o usuario..."
-                        value={searchAnalista}
-                        onChange={e => setSearchAnalista(e.target.value)}
-                        className="input-field"
-                        style={{ width: '100%', paddingLeft: '32px', fontSize: '12.5px', height: '34px' }}
-                      />
-                    </div>
-
-                    {/* Lista scrollable de opciones de analistas */}
-                    <div 
-                      style={{ 
-                        maxHeight: '175px', 
-                        overflowY: 'auto', 
-                        border: '1px solid var(--border-color, #e2e8f0)', 
-                        borderRadius: '10px',
-                        background: 'var(--bg-main, #ffffff)'
-                      }}
-                    >
-                      {analistasFiltrados.length === 0 ? (
-                        <div style={{ padding: '16px', textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>
-                          No se encontraron analistas con "{searchAnalista}"
-                        </div>
-                      ) : (
-                        analistasFiltrados.map(a => {
-                          const isSelected = selectedAnalista === a.users_id;
-                          return (
-                            <div
-                              key={a.users_id}
-                              onClick={() => setSelectedAnalista(a.users_id)}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                padding: '9px 12px',
-                                borderBottom: '1px solid var(--border-color, #f1f5f9)',
-                                cursor: 'pointer',
-                                background: isSelected ? 'rgba(37, 99, 235, 0.08)' : 'transparent',
-                                transition: 'background 0.15s ease'
-                              }}
-                            >
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <div 
-                                  style={{ 
-                                    width: '28px', 
-                                    height: '28px', 
-                                    borderRadius: '50%', 
-                                    background: isSelected ? '#2563eb' : 'var(--border-color, #e2e8f0)', 
-                                    color: isSelected ? '#ffffff' : 'var(--text-primary)',
-                                    display: 'flex', 
-                                    alignItems: 'center', 
-                                    justifyContent: 'center',
-                                    fontSize: '11px',
-                                    fontWeight: 700
-                                  }}
-                                >
-                                  {a.nombre ? a.nombre.charAt(0) : a.users_id.charAt(0)}
-                                </div>
-                                <div>
-                                  <div style={{ fontSize: '12.5px', fontWeight: isSelected ? 700 : 500, color: 'var(--text-primary)' }}>
-                                    {a.nombre_completo}
-                                  </div>
-                                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                                    Usuario: <span style={{ fontWeight: 600 }}>{a.users_id}</span>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span 
-                                  style={{ 
-                                    fontSize: '10.5px', 
-                                    padding: '2px 6px', 
-                                    borderRadius: '6px', 
-                                    background: isSelected ? 'rgba(37, 99, 235, 0.15)' : '#f1f5f9', 
-                                    color: isSelected ? '#1d4ed8' : '#64748b',
-                                    fontWeight: 600
-                                  }}
-                                >
-                                  {a.total_asignados} asignados
-                                </span>
-                                {isSelected && <CheckCircle2 size={16} color="#2563eb" />}
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-
               {/* Campo Observaciones */}
               <div style={{ marginBottom: '24px' }}>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
-                  Observaciones de Pase (Opcional)
+                  <FileText size={13} style={{ display: 'inline', verticalAlign: '-2px', marginRight: '4px' }} />
+                  Observación de Cierre
                 </label>
                 <textarea
                   value={observacion}
@@ -618,7 +438,7 @@ export const CerrarExpedienteModal: React.FC<CerrarExpedienteModalProps> = ({
 
                 <button
                   type="submit"
-                  disabled={submitting || !selectedAnalista || !expedienteNumero}
+                  disabled={submitting || !expedienteNumero}
                   className="btn btn-primary"
                   style={{
                     background: 'linear-gradient(135deg, #1e40af 0%, #2563eb 100%)',
@@ -636,13 +456,12 @@ export const CerrarExpedienteModal: React.FC<CerrarExpedienteModalProps> = ({
                   {submitting ? (
                     <>
                       <Loader2 size={16} className="spinner" />
-                      Validando y Cerrando...
+                      Cerrando Expediente...
                     </>
                   ) : (
                     <>
                       <FolderCheck size={16} />
-                      Cerrar y Transferir a Validación
-                      <ArrowRight size={14} />
+                      Confirmar Cierre de Expediente
                     </>
                   )}
                 </button>

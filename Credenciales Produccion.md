@@ -46,23 +46,27 @@
 
 > **Nota de despliegue:** se corrigió la ruta de ASM respectiva a `+DG_DATA`.
 
-### 1.3 Matriz consolidada de objetos y privilegios
+### 1.3 Matriz consolidada de objetos y privilegios (Actualizada y Auditada al 15/09/2026)
 
-| Objeto / Esquema origen | Tipo de objeto | Privilegio | Usuario privilegiado |
-|---|---|---|---|
-| `MV_PLANILLAS_SIN_CONCILIAR_2024` | Materialized View | `SELECT` | `ONT_SIR_BOT` |
-| `MV_PLANILLAS_SIN_CONCILIAR_2024` | Sinónimo privado | `READ DIRECT` | `ONT_SIR_BOT` |
-| `MV_AUDIT_ASIGNACIONES_2024` | Materialized View | `SELECT` | `ONT_SIR_BOT` |
-| `MV_AUDIT_ASIGNACIONES_2024` | Sinónimo privado | `READ DIRECT` | `ONT_SIR_BOT` |
-| `ORG_LIQ.*` (70 objetos) | Tablas y vistas | `SELECT` (100 %) | `ONT_SIR_BOT` / `ONT_SIR_BOT_AUDIT` |
-| `WFE_WORKFLOW.*` (39 objetos) | Tablas y vistas | `SELECT` (100 %) | `ONT_SIR_BOT` / `ONT_SIR_BOT_AUDIT` |
-| `ORG_LIQ.PLANILLA` | Tabla | `SELECT`, `INSERT`, `DELETE` | `ONT_SIR_BOT` |
-| `ORG_LIQ.DET_PLANILLA` | Tabla | `SELECT`, `INSERT`, `DELETE` | `ONT_SIR_BOT` |
-| `ORG_LIQ.TXT_SENIAT` | Tabla | `SELECT`, `UPDATE` | `ONT_SIR_BOT` |
-| `ORG_LIQ.LOTE` | Tabla | `SELECT`, `UPDATE` *(Otorgado 08/09/2026)* | `ONT_SIR_BOT` |
-| `WFE_WORKFLOW.WF_EXPEDIENTE` | Tabla | `SELECT`, `UPDATE` *(Otorgado 08/09/2026)* | `ONT_SIR_BOT` |
-| `WFE_WORKFLOW.WF_WORK_ITEM` | Tabla | `SELECT`, `INSERT`, `UPDATE` | `ONT_SIR_BOT` |
-| `WFE_WORKFLOW.WF_AUDITA_EXPEDIENTES` | Tabla | `INSERT` | `ONT_SIR_BOT` |
+| Objeto / Esquema origen | Tipo de objeto | Privilegio Concedido | Usuario privilegiado | Estado Operativo |
+|---|---|---|---|---|
+| `MV_PLANILLAS_SIN_CONCILIAR_2024` | Materialized View | `SELECT` | `ONT_SIR_BOT` / `ONT_SIR_BOT_AUDIT` | ✅ Activo |
+| `MV_PLANILLAS_SIN_CONCILIAR_2024` | Sinónimo privado | `READ DIRECT` | `ONT_SIR_BOT` | ✅ Activo |
+| `MV_AUDIT_ASIGNACIONES_2024` | Materialized View | `SELECT` | `ONT_SIR_BOT` / `ONT_SIR_BOT_AUDIT` | ✅ Activo *(Verificado 15/09/2026)* |
+| `MV_AUDIT_ASIGNACIONES_2024` | Sinónimo privado | `READ DIRECT` | `ONT_SIR_BOT` | ✅ Activo |
+| `ORG_LIQ.*` (70 objetos) | Tablas y vistas | `SELECT` (100 %) | `ONT_SIR_BOT` / `ONT_SIR_BOT_AUDIT` | ✅ Activo |
+| `ORG_LIQ.PLANILLA` | Tabla | `SELECT`, `INSERT`, `DELETE` | `ONT_SIR_BOT` | ✅ Activo |
+| `ORG_LIQ.DET_PLANILLA` | Tabla | `SELECT`, `INSERT`, `DELETE` | `ONT_SIR_BOT` | ✅ Activo |
+| `ORG_LIQ.TXT_SENIAT` | Tabla | `SELECT`, `UPDATE` | `ONT_SIR_BOT` | ✅ Activo |
+| `ORG_LIQ.LOTE` | Tabla | `SELECT`, `UPDATE` | `ONT_SIR_BOT` | ✅ Activo *(Otorgado 08/09/2026)* |
+| `WFE_WORKFLOW.WF_EXPEDIENTE` | Tabla | `SELECT`, `UPDATE`, `DELETE` | `ONT_SIR_BOT` | ✅ Activo *(Otorgado 08/09/2026)* |
+| `WFE_WORKFLOW.WF_WORK_ITEM` | Tabla | `INSERT`, `UPDATE`, `DELETE` | `ONT_SIR_BOT` | ⚠️ Incompleto: **Falta `SELECT`** (En Oracle, `UPDATE ... WHERE ...` arroja `ORA-01031` si no posee `SELECT`) |
+| `WFE_WORKFLOW.WF_WORK_ITEM` | Tabla | `SELECT` | `ONT_SIR_BOT_AUDIT` | ✅ Activo en cuenta AUDIT |
+| `WFE_WORKFLOW.WF_AUDITA_EXPEDIENTES` | Tabla | `INSERT`, `UPDATE`, `DELETE` | `ONT_SIR_BOT` | ⚠️ Activo DML: Falta `SELECT` |
+| `WFE_WORKFLOW.WF_USERS` | Tabla | *Sin privilegios directos* | `ONT_SIR_BOT` | ❌ Faltante `SELECT` (`ORA-00942`). Disponible solo en `ONT_SIR_BOT_AUDIT` |
+| `WFE_WORKFLOW.WF_USERS` | Tabla | `SELECT` | `ONT_SIR_BOT_AUDIT` | ✅ Activo en cuenta AUDIT |
+| `WFE_WORKFLOW.CG$WF_WORK_ITEM` | Package | `EXECUTE` | `ONT_SIR_BOT` | ✅ Activo *(Otorgado 08/09/2026)* |
+| `WFE_WORKFLOW.CG$ERRORS` | Package | `EXECUTE` | `ONT_SIR_BOT` | ✅ Activo *(Otorgado 08/09/2026)* |
 
 ### 1.4 ⚠️ Consideración Crítica: Manejo de Caracteres Especiales en Passwords (`$`, `!`, `#`)
 
@@ -724,81 +728,142 @@ WFE_WORKFLOW    IDX_WFE_EXP_ESTADO        WF_WORK_ITEM    WORKFLOW_IDX02_128M   
 3 rows selected.
 ```
 
-Los tres índices quedaron en estatus **VALID** y con grado de paralelismo final `1`, según lo previsto por las sentencias `ALTER INDEX ... NOPARALLEL`.
+### 10.6 Auditoría en tiempo real de privilegios activos (Verificación Producción `sige1` al 15/09/2026)
+
+Conexión directa realizada a Producción (`10.79.6.247:1521/sige1`):
+
+#### 10.6.1 Privilegios activos de `ONT_SIR_BOT` (Total: 90 privilegios directos)
+```
+ESQUEMA              TABLA / OBJETO                       PRIVILEGIOS CONCEDIDOS
+-------------------- ------------------------------------ ------------------------
+ONT_SIR_BOT_AUDIT    MV_AUDIT_ASIGNACIONES_2024          SELECT (✅ Activo)
+ONT_SIR_BOT_AUDIT    MV_PLANILLAS_SIN_CONCILIAR_2024     SELECT (✅ Activo)
+ORG_LIQ              (70 objetos del esquema)             SELECT (✅ Activo 100%)
+ORG_LIQ              DET_PLANILLA                        DELETE, INSERT, SELECT (✅ Activo)
+ORG_LIQ              LOTE                                SELECT, UPDATE (✅ Activo - Otorgado 08/09/2026)
+ORG_LIQ              PLANILLA                            DELETE, INSERT, SELECT (✅ Activo)
+ORG_LIQ              TXT_SENIAT                          SELECT, UPDATE (✅ Activo)
+SYS                  ONT_SIR_BOT                         INHERIT PRIVILEGES (✅ Activo)
+WFE_WORKFLOW         CG$ERRORS                           EXECUTE (✅ Activo - Otorgado 08/09/2026)
+WFE_WORKFLOW         CG$WF_WORK_ITEM                     EXECUTE (✅ Activo - Otorgado 08/09/2026)
+WFE_WORKFLOW         WF_AUDITA_EXPEDIENTES               DELETE, INSERT, UPDATE (⚠️ Falta SELECT)
+WFE_WORKFLOW         WF_EXPEDIENTE                       DELETE, SELECT, UPDATE (✅ Activo - Otorgado 08/09/2026)
+WFE_WORKFLOW         WF_WORK_ITEM                        DELETE, INSERT, UPDATE (🔴 FALTA SELECT)
+```
+
+#### 10.6.2 Privilegios activos de `ONT_SIR_BOT_AUDIT` (Total: 75 privilegios directos)
+```
+ESQUEMA              TABLA / OBJETO                       PRIVILEGIOS CONCEDIDOS
+-------------------- ------------------------------------ ------------------------
+ONT_SIR_BOT_AUDIT    MV_AUDIT_ASIGNACIONES_2024          SELECT (✅ Activo)
+ONT_SIR_BOT_AUDIT    MV_PLANILLAS_SIN_CONCILIAR_2024     SELECT (✅ Activo)
+ORG_LIQ              (70 objetos del esquema)             SELECT (✅ Activo 100%)
+SYS                  ONT_SIR_BOT_AUDIT                   INHERIT PRIVILEGES (✅ Activo)
+WFE_WORKFLOW         WF_USERS                            SELECT (✅ Activo)
+WFE_WORKFLOW         WF_WORK_ITEM                        SELECT (✅ Activo)
+```
 
 ---
 
 ## 11. Observaciones y hallazgos de revisión
 
-Estos puntos surgen de cruzar los scripts ejecutados (secciones 2–9) contra las evidencias de verificación (sección 10). No formaban parte del PDF original; se agregan como valor de revisión.
+Estos puntos surgen de cruzar los scripts ejecutados (secciones 2–9) contra las evidencias de verificación en vivo (sección 10).
 
-### 🔴 Bloqueantes / a corregir antes del cierre del pase
+### 🔴 Bloqueantes para Ejecución de UPDATEs en Producción (Auditado 15/09/2026)
 
-1. **El bloque PL/SQL de `WFE_WORKFLOW` está mal parametrizado.**
-   El bloque rotulado como `WFE_WORKFLOW` en la sección 5.2 es una copia literal del de `ORG_LIQ`: el cursor lee `owner = 'ORG_LIQ'` y el `EXECUTE IMMEDIATE` construye `'GRANT SELECT ON ORG_LIQ.' || ...`. Al ser sintácticamente válido, Oracle responde `PL/SQL procedure successfully completed.` sin conceder nada sobre `WFE_WORKFLOW`. Consecuencia directa: la conformidad de ese esquema quedó en **2 de 39 objetos (5,13 %)** — los únicos dos otorgados explícitamente (`WF_USERS` y `WF_WORK_ITEM`) fueron los de la sección 7.2, requeridos por la MV.
+1. **🔴 BLOQUEANTE CRÍTICO: Falta `SELECT` en `WFE_WORKFLOW.WF_WORK_ITEM` para `ONT_SIR_BOT`.**
+   - **Diagnóstico empírico:** Aunque `ONT_SIR_BOT` tiene `GRANT UPDATE ON WFE_WORKFLOW.WF_WORK_ITEM`, en el motor relacional de Oracle, toda sentencia `UPDATE` cuya cláusula `WHERE` evalúe columnas de la tabla (ej. `WHERE WFEX_EXP_ID = :exp AND ANHO = :anho AND WORKITEM = :wi`) **requiere estrictamente privilegio `SELECT` sobre dicha tabla para resolver los predicados**.
+   - **Resultado de prueba real en `sige1`:**
+     ```sql
+     UPDATE WFE_WORKFLOW.WF_WORK_ITEM SET WI_ESTADO = 'PENDIENTE' WHERE WFEX_EXP_ID = 99999999;
+     -- Error arrojado: ORA-01031: insufficient privileges
+     ```
+   - **Consecuencia:** Tanto la **reasignación de expedientes** como el **cierre del work item** fallan con `ORA-01031` al ejecutarse desde la conexión de escritura del bot (`ONT_SIR_BOT`).
+   - **Solución requerida al DBA:**
+     ```sql
+     GRANT SELECT ON WFE_WORKFLOW.WF_WORK_ITEM TO ONT_SIR_BOT;
+     ```
 
-   **Corrección propuesta:**
+2. **🔴 BLOQUEANTE: Falta `SELECT` en `WFE_WORKFLOW.WF_USERS` para `ONT_SIR_BOT`.**
+   - **Diagnóstico empírico:** `ONT_SIR_BOT` no tiene privilegios directos sobre `WF_USERS`. Al consultar `SELECT ... FROM WFE_WORKFLOW.WF_USERS` arroja `ORA-00942: table or view does not exist`.
+   - **Consecuencia:** Impide validar la existencia y estado activo (`USERS_STATUS = 'A'`) del usuario al reasignar o transferir a validación. Actualmente la API debe usar un desvío hacia `ONT_SIR_BOT_AUDIT` (`readPool`), pero si la transacción de escritura necesita validar al usuario, requiere el grant directo.
+   - **Solución requerida al DBA:**
+     ```sql
+     GRANT SELECT ON WFE_WORKFLOW.WF_USERS TO ONT_SIR_BOT;
+     ```
 
-   ```sql
-   BEGIN
-     FOR r IN (SELECT table_name AS obj FROM dba_tables WHERE owner = 'WFE_WORKFLOW'
-               UNION ALL
-               SELECT view_name  AS obj FROM dba_views  WHERE owner = 'WFE_WORKFLOW') LOOP
-       EXECUTE IMMEDIATE 'GRANT SELECT ON WFE_WORKFLOW."' || r.obj || '" TO ONT_SIR_BOT';
-       EXECUTE IMMEDIATE 'GRANT SELECT ON WFE_WORKFLOW."' || r.obj || '" TO ONT_SIR_BOT_AUDIT';
-     END LOOP;
-   END;
-   /
-   ```
+3. **🟡 DESEABLE: `GRANT SELECT ON WFE_WORKFLOW.WF_AUDITA_EXPEDIENTES TO ONT_SIR_BOT`.**
+   - `ONT_SIR_BOT` posee `INSERT, UPDATE, DELETE`, pero no `SELECT`. Se recomienda otorgar `SELECT` para permitir consultas de auditoría directa e idempotencia.
 
-   > Alternativamente, si el alcance real del bot no requiere los 39 objetos, corresponde **ajustar la matriz de la sección 1.3** (que declara `WFE_WORKFLOW.* (39 objetos) SELECT 100 %`) para que refleje el alcance mínimo necesario. Hoy la matriz y la evidencia se contradicen.
+4. **✅ RESUELTO: Privilegios DML otorgados el 08/09/2026:**
+   - `ORG_LIQ.LOTE`: `UPDATE` ya está activo. Los cierres de lote a estado `'V'` ejecutan sin error.
+   - `WFE_WORKFLOW.WF_EXPEDIENTE`: `SELECT, UPDATE, DELETE` ya están activos. La actualización de la cabecera del expediente a `'CERRADO'` ejecuta sin error.
+   - `WFE_WORKFLOW.CG$WF_WORK_ITEM` y `CG$ERRORS`: `EXECUTE` ya está activo, permitiendo que los triggers Designer ejecuten.
+   - `MV_AUDIT_ASIGNACIONES_2024`: `SELECT` ya está activo en `ONT_SIR_BOT`.
 
-2. **Falta el `GRANT SELECT` de `MV_AUDIT_ASIGNACIONES_2024` a `ONT_SIR_BOT` en `DBA_TAB_PRIVS`.**
-   El listado de 145 filas incluye para `ONT_SIR_BOT` únicamente `ONT_SIR_BOT_AUDIT.MV_PLANILLAS_SIN_CONCILIAR_2024`. La segunda MV no aparece, aunque la matriz de la sección 1.3 la declara con `SELECT` + sinónimo privado. Coincide con que en la sección 7.2 el `GRANT` y el `CREATE SYNONYM` son las **únicas sentencias del documento sin respuesta registrada**. Verificar y, de ser necesario, reejecutar:
-
-   ```sql
-   GRANT SELECT ON ONT_SIR_BOT_AUDIT.MV_AUDIT_ASIGNACIONES_2024 TO ONT_SIR_BOT;
-
-   CREATE SYNONYM ONT_SIR_BOT.MV_AUDIT_ASIGNACIONES_2024
-   FOR ONT_SIR_BOT_AUDIT.MV_AUDIT_ASIGNACIONES_2024;
-   ```
-
-   Validación sugerida:
-
-   ```sql
-   SELECT * FROM dba_tab_privs
-   WHERE grantee = 'ONT_SIR_BOT' AND table_name = 'MV_AUDIT_ASIGNACIONES_2024';
-
-   SELECT * FROM dba_synonyms WHERE owner = 'ONT_SIR_BOT';
-   ```
-
-3. **`WF_AUDITA_EXPEDIENTES` tiene `INSERT` pero no `SELECT`.**
-   El bot puede insertar en la tabla de auditoría pero no leerla. Si el proceso necesita verificar idempotencia (no reinsertar un expediente ya auditado), fallará con `ORA-00942`. Evaluar si corresponde agregar `SELECT`.
-
-### 🟡 Puntos a documentar / cerrar
-
-4. **DDL faltante de `WFE_WORKFLOW.IDX_WFE_EXP_ESTADO`.** El índice aparece en la recolección de estadísticas (sección 9.3) y en la verificación final (sección 10.5), sobre `WF_WORK_ITEM` y en el tablespace `WORKFLOW_IDX02_128M`, pero su sentencia `CREATE INDEX` no está incluida. Debe incorporarse para que el documento sirva como guion de reconstrucción completo.
-
-5. **Divergencia producción vs. certificación en `ORG_LIQ.PLANILLA`.** En producción se otorgó `DELETE, INSERT` (sección 6.1); en el ambiente de certificación solo `INSERT` (sección 8). Si el proceso ejecuta borrados, certificación no reproduce el comportamiento productivo y las pruebas no serán representativas.
-
-6. **`LOG_CONCILIACION` sigue en standby.** Sin el DDL definitivo de ONT, el proyecto no tiene bitácora persistente de conciliación. Conviene fijar fecha de entrega, ya que la adenda es prerrequisito para la trazabilidad del bot.
-
-7. **`PRF_ONT_BOT` con `FAILED_LOGIN_ATTEMPTS UNLIMITED`.** Justificado operativamente (evita bloqueo del bot), pero elimina la protección contra ataques de fuerza bruta sobre cuentas con `DELETE`/`UPDATE` en tablas de recaudación. Se sugiere compensarlo con restricción por origen (ACL de red, `sqlnet.ora` / perfil de listener) y rotación manual de credenciales documentada.
-
-8. **Credenciales en texto plano en un entregable del pase.** Ambas passwords productivas aparecen dos veces en el documento (secciones 1.1 y 8). Recomendable emitir una versión redactada para circulación y mantener las credenciales en la bóveda institucional.
-
-### 🔵 Notas técnicas sobre los artefactos
-
-9. **`SUM(lote_id)` y `SUM(expediente)` en `MV_PLANILLAS_SIN_CONCILIAR_2024`.** Ambas columnas se agregan con `SUM` sobre lo que parecen ser identificadores, no magnitudes. Si el `GROUP BY` puede devolver más de un lote o expediente por combinación *fecha / banco / agencia*, el resultado será un número sin significado de negocio. Vale la pena confirmar con el área funcional si la intención era `MAX`, `MIN` o `LISTAGG`.
-
-10. **Volumen de `MV_PLANILLAS_SIN_CONCILIAR_2024`: 2.567.350 filas.** El join final es cartesiano parcial contra `TXT_SENIAT` por la tripleta *fecha / banco / agencia*, lo que multiplica cada grupo con diferencia por todas las planillas huérfanas de esa combinación. Es consistente con el diseño, pero conviene dimensionar el impacto en el tablespace: la cuota de `ONT_SIR_BOT_AUDIT` es `UNLIMITED`, pero el datafile inicial de `500M` crecerá por autoextend.
-
-11. **`REFRESH FORCE ON DEMAND` en ambas MVs.** No hay `MATERIALIZED VIEW LOG` sobre las tablas origen, por lo que `FORCE` degradará siempre a `COMPLETE`. Dado el volumen, definir explícitamente la ventana de refresco (job programado, horario de baja carga) y, si el tiempo de reconstrucción resulta alto, evaluar `ATOMIC_REFRESH => FALSE` para permitir refresco en modo `TRUNCATE + INSERT /*+ APPEND */`.
-
-12. **Filtro `UT.ORGA_ID IN ('093', '93')` en `MV_AUDIT_ASIGNACIONES_2024`.** El doble valor sugiere inconsistencia de datos en el origen (mismo código almacenado con y sin cero a la izquierda). El filtro funciona, pero conviene registrarlo como deuda de calidad de datos en `WF_USERS`.
-
-13. **Alcance temporal fijo en 2024.** Ambas MVs tienen el rango `01/01/2024 – 01/01/2025` embebido en el SQL y en el nombre del objeto. Para el ejercicio siguiente habrá que crear artefactos nuevos o parametrizar el rango; conviene decidirlo antes de que el bot entre en régimen.
+### Script Consolidado Pendiente por Aplicar en Producción (`sige1`):
+```sql
+GRANT SELECT ON WFE_WORKFLOW.WF_WORK_ITEM TO ONT_SIR_BOT;
+GRANT SELECT ON WFE_WORKFLOW.WF_USERS TO ONT_SIR_BOT;
+GRANT SELECT ON WFE_WORKFLOW.WF_AUDITA_EXPEDIENTES TO ONT_SIR_BOT;
+```
 
 ---
 
-*Documento convertido a Markdown desde el PDF original "Proyecto de Automatización del Proceso de Planillas Pendientes por Conciliar ONT - Producción SIGECOF". Las secciones 1 a 10 reproducen fielmente el contenido original; la sección 11 es un anexo de revisión.*
+## 12. Reglas de Negocio: Cierre de Expediente y Asignación (Método UPDATE In-Situ)
+
+> [!IMPORTANT]
+> **Principio de Integridad en SIGECOF Workflow:**  
+> **NUNCA se debe insertar un registro nuevo (`INSERT`) en `WFE_WORKFLOW.WF_WORK_ITEM` para cerrar un expediente o reasignarlo a un transcriptor/analista.**  
+> Toda operación de cambio de responsable o de estado se realiza mediante **`UPDATE` sobre el registro activo existente**.
+
+### 12.1 Rutina de Reasignación de Expediente a un Usuario
+1. **No genera duplicados:** Se actualiza el WorkItem activo (`WORKITEM = :currentWiNum`, `WI_ESTADO IN ('ABIERTA', 'PENDIENTE')`).
+2. **Sentencia de actualización:**
+   ```sql
+   UPDATE WFE_WORKFLOW.WF_WORK_ITEM
+   SET WFUS_USERS_ID = :nuevoUsuario,
+       WI_ESTADO = 'PENDIENTE',
+       WI_OBSERVACION = :observacion
+   WHERE WFEX_EXP_ID = :expediente
+     AND ANHO = :anho
+     AND ORGA_ID = :orgaId
+     AND WORKITEM = :currentWiNum
+     AND WI_ESTADO IN ('ABIERTA', 'PENDIENTE');
+   ```
+3. **Auditoría:** Se registra traza explícita en `WFE_WORKFLOW.WF_AUDITA_EXPEDIENTES` y en la base PostgreSQL de auditoría (`motor_app.auditoria_logs`).
+
+### 12.2 Rutina de Cierre de Expediente
+El cierre de un expediente conciliado consta de 3 operaciones atómicas:
+1. **Cierre de todos los lotes asociados en `ORG_LIQ.LOTE`:**
+   ```sql
+   UPDATE ORG_LIQ.LOTE
+   SET ESTADO = 'V'
+   WHERE EXPEDIENTE = :expediente AND ANHO = :anho AND ESTADO = 'P';
+   ```
+2. **Cierre del WorkItem activo en `WFE_WORKFLOW.WF_WORK_ITEM` (Sin `INSERT` nuevo):**
+   ```sql
+   UPDATE WFE_WORKFLOW.WF_WORK_ITEM
+   SET WI_ESTADO = 'CERRADA',
+       WI_FECHA_CIERRE = SYSDATE,
+       WI_OBSERVACION = :observacion
+   WHERE WFEX_EXP_ID = :expediente
+     AND ANHO = :anho
+     AND ORGA_ID = :orgaId
+     AND WORKITEM = :currentWiNum;
+   ```
+3. **Cierre de la cabecera en `WFE_WORKFLOW.WF_EXPEDIENTE`:**
+   ```sql
+   UPDATE WFE_WORKFLOW.WF_EXPEDIENTE
+   SET EXP_ESTADO = 'CERRADO',
+       EXP_FECHA_CIERRE = SYSDATE,
+       EXP_OBSERVACION = :observacion
+   WHERE EXP_ID = :expediente
+     AND ANHO = :anho
+     AND ORGA_ID = :orgaId;
+   ```
+   > ℹ️ **Disparo Automático de Auditoría:** Al pasar `EXP_ESTADO = 'CERRADO'` en `WF_EXPEDIENTE`, el trigger nativo de base de datos `AUDITAUPDATEEXPEDIENTES` se dispara automáticamente e inserta la traza histórica en `WFE_WORKFLOW.WF_AUDITA_EXPEDIENTES`.
+
+---
+
+*Documento técnico actualizado al 15/09/2026. Auditoría ejecutada directamente sobre Oracle SIGECOF Producción (`sige1`).*

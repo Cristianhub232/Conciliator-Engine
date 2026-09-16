@@ -370,11 +370,11 @@ export class PlanillasController {
 
   @Post('cerrar-expediente')
   @ApiOperation({
-    summary: 'Cerrar expediente y reasignar a analista de la siguiente fase',
-    description: 'Realiza el cierre formal del expediente en Oracle WFE_WORKFLOW y asigna la revisión al analista seleccionado.'
+    summary: 'Cerrar expediente formalmente mediante actualización in-situ',
+    description: 'Realiza el cierre formal del expediente en Oracle SIGECOF actualizando WF_EXPEDIENTE a CERRADO, lotes a V y WF_WORK_ITEM a CERRADA.'
   })
   @ApiBody({ type: CerrarExpedienteDto })
-  @ApiResponse({ status: 200, description: 'Expediente cerrado y reasignado exitosamente' })
+  @ApiResponse({ status: 200, description: 'Expediente cerrado exitosamente' })
   async cerrarExpediente(@Body() payload: CerrarExpedienteDto) {
     if (payload.banco) {
       payload.banco = sanitizeBanco(payload.banco);
@@ -385,7 +385,7 @@ export class PlanillasController {
     } catch (error: any) {
       if (error instanceof HttpException) throw error;
       throw new HttpException(
-        { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error al cerrar expediente y reasignar a validación', message: error.message },
+        { status: HttpStatus.INTERNAL_SERVER_ERROR, error: 'Error al cerrar expediente en SIGECOF', message: error.message },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
